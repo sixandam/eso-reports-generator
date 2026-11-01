@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ESO Report Generator
+Comment=Generate monthly incident attendance and apparatus reports for Lyn-Dan Heights VFD
+Exec=eso-reports-gui
+Icon=ldhvfd_logo
+Terminal=false
+StartupNotify=true
+Categories=Office;Spreadsheet;

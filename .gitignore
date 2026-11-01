@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# Sessions, caches, credentials & checkpoints
+.session_state.json
+*.session.json
+data_checkpoint.json
+raw_incidents_cache.json
+.env
+*.log
+
+# Generated output files
+*.xlsx
+output/
+
+# Playwright
+.playwright/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+

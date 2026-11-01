@@ -1,0 +1,69 @@
+name: Build Windows Standalone Executables
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pillow pytest
+
+      - name: Run unit test suite
+        run: |
+          pytest
+
+      - name: Generate multi-resolution Windows icon
+        run: |
+          python scripts/make_icon.py
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller eso-reports.spec --clean --noconfirm
+
+      - name: Create Portable ZIP archive
+        run: |
+          Compress-Archive -Path dist/eso-reports/* -DestinationPath dist/eso-reports-windows.zip -Force
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Compile Inno Setup Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" assets/installer.iss
+
+      - name: Upload Portable Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: eso-reports-portable
+          path: dist/eso-reports-portable.exe
+
+      - name: Upload Portable ZIP Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: eso-reports-windows-zip
+          path: dist/eso-reports-windows.zip
+
+      - name: Upload Setup Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: eso-reports-setup-installer
+          path: dist/eso-reports-setup.exe
+
