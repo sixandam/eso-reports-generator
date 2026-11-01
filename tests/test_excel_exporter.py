@@ -6,9 +6,9 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from src.models import Incident
-from src.aggregator import build_report_dataset
-from src.excel_exporter import export_report_to_excel, _format_cell_date
+from eso_reports.models import Incident
+from eso_reports.aggregator import build_report_dataset
+from eso_reports.excel_exporter import export_report_to_excel, _format_cell_date
 
 
 def test_format_cell_date():

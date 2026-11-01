@@ -3,15 +3,16 @@
 
 An automated extraction and reporting tool designed for fire and rescue services to compile incident response records from [ESO Suite Records Management System (RMS)](https://www.esosuite.net/fireincidents/records/search) into clean, plain-text Excel workbooks (`.xlsx`) saved directly to your Desktop.
 
-Built with a "zero upkeep" standard for departmental officers and administrative leadership: featuring self-healing session persistence, Duo/SMS MFA support, 30x faster direct API record harvesting, and a dark-mode graphical desktop application.
+Built with a "zero upkeep" standard for departmental officers and administrative leadership: featuring cross-platform compatibility (Windows and Linux), self-healing session persistence, Duo/SMS MFA support, 30x faster direct API record harvesting, and a dark-mode graphical desktop application.
 
 ---
 
 ## Key Features
 
+- **Cross-Platform Compatibility**: Fully supported and tested on both Windows (Windows 10/11) and Linux (Ubuntu/Debian and related distributions).
 - **Modern Graphical Application**: Full-featured desktop application (PyQt6) with calendar date pickers, one-click month presets, and centered layout.
 - **Direct API Acceleration**: High-performance backend JSON harvesting (`/api/incident/{record_id}`) fetching full personnel rosters and apparatus dispatches in milliseconds per incident with persistent connection pooling.
-- **Seamless Authentication Lifecycle**: Persistent browser storage (`session.json`) in standard XDG configuration with strict file permissions (`0700` directory, `0600` file). If a session expires or MFA is required, an interactive browser automatically opens, allows authentication/Duo approval, saves the session, immediately closes, and resumes headlessly.
+- **Seamless Authentication Lifecycle**: Persistent browser storage (`session.json`) in standard configuration directories (`%APPDATA%` on Windows, standard XDG configuration on Linux with `0700` directory and `0600` file permissions). If a session expires or MFA is required, an interactive browser automatically opens, allows authentication/Duo approval, saves the session, immediately closes, and resumes headlessly.
 - **Plain-Text Excel Output**: Two dedicated sheets formatted cleanly without colored fills, frozen panes for scrolling (`D2` on Sheet 1, `A3` on Sheet 2), and automated column auto-fitting.
 - **Roster & Inactive Call Segregation**: Automatically normalizes firefighter names (e.g. `Last, First`, stripping badge suffixes), aggregates attendance ratios, and segregates inactive/canceled draft entries to an audit log so attendance percentages remain accurate.
 
@@ -33,10 +34,10 @@ eso-reports
 - **Department Branding Header**: Lyn-Dan Heights Volunteer Fire Department emblem displayed inline with the title.
 - **Full Dark Mode**: Slate and charcoal theme (`#0F172A` / `#1E293B`) with high-contrast text and blue primary buttons.
 - **Always Vertically Centered**: Control elements remain vertically centered in the window across all resizing operations.
-- **Date Selectors & Popup Calendars**: Side-by-side Start and End date buttons anchored to clean Microsoft Forms / Fluent-style calendar popups for one-click date picking.
+- **Date Selectors & Popup Calendars**: Side-by-side Start and End date buttons anchored to clean Fluent/Forms-style calendar popups for one-click date picking.
 - **Month Presets**: One-click **Last Month** and **This Month** preset buttons.
 - **Clean Execution UX**: A prominent centered **Start report** button. While running, an inline orange `In progress...` indicator displays. Upon completion, a bold green `Done` label with a two-lined vector checkmark displays without intrusive modal dialog popups. On failure, a clean red `Failed` indicator is displayed.
-- **Expandable Terminal Diagnostic Log**: When the window is enlarged or maximized (height $\ge$ 640px), a live terminal output log appears below the controls showing daemon status and progress. In compact mode, the log cleanly collapses.
+- **Expandable Diagnostic Log**: When the window is enlarged or maximized (height $\ge$ 640px), a live output log appears below the controls showing daemon status and progress. In compact mode, the log cleanly collapses.
 
 ---
 
@@ -77,78 +78,128 @@ A structured multi-section distribution report:
 
 ### Prerequisites
 - Python 3.10+
-- Google Chrome or Chromium installed on the system
+- Google Chrome, Microsoft Edge, or Chromium installed on the system
 
-### 1. Set Up Virtual Environment
+### Linux Quickstart
 
+#### One-Click Automated Setup
+From the repository root, run the setup script:
 ```bash
-cd ~/Desktop/eso-reports-generator
+bash scripts/setup_linux.sh
+```
+This automated script:
+1. Creates a local Python virtual environment (`.venv`).
+2. Installs dependencies and Playwright Chromium.
+3. Installs the LDH department emblem into `~/.local/share/icons`.
+4. Creates a desktop shortcut on your Desktop and system application menu.
 
+#### Manual Setup (Linux)
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e ".[test]"
 playwright install chromium
 ```
 
-### 2. Desktop Shortcut Setup (Linux)
+### Windows Quickstart
 
-A ready-to-use desktop entry is available in `assets/eso-reports.desktop`:
+#### Option 1: Standalone Portable Executable or Setup Wizard
+For end users who do not have Python installed, download the pre-compiled distribution:
+- **Portable Executable**: Run `eso-reports-portable.exe` directly.
+- **Windows Setup Installer**: Run `eso-reports-setup.exe` to install to `%LOCALAPPDATA%\Programs\ESO Reports` with Start Menu and Desktop shortcuts.
 
-```bash
-# Install department icon for application launchers
-mkdir -p ~/.local/share/icons
-cp assets/ldhvfd_logo.png ~/.local/share/icons/ldhvfd_logo.png
-
-# Install desktop shortcut into system menu
-cp assets/eso-reports.desktop ~/.local/share/applications/
-
-# Or copy directly to Desktop for one-click access:
-cp assets/eso-reports.desktop ~/Desktop/
-chmod +x ~/Desktop/eso-reports.desktop
+#### Option 2: Local Developer Setup (Windows)
+Open PowerShell or Command Prompt in the repository folder:
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[test]"
 ```
 
-### 3. Windows Standalone Build & Packaging
+---
+
+## Building Standalone Executables (Windows)
 
 To export and compile the application for Windows with zero pre-requisites for end-users:
 
-#### One-Click Local Build
+### One-Click Local Build
 On any Windows workstation with Python 3.10+ installed:
 - Double-click `build_windows.bat` or run `.\build_windows.ps1` in PowerShell.
 
 This automated script:
-1. Sets up the virtual environment and installs dependencies (`PyQt6`, `openpyxl`, `playwright`, `pyinstaller`, `pillow`).
-2. Generates the multi-resolution application icon (`assets/app_icon.ico`).
-3. Runs PyInstaller with [`eso-reports.spec`](file:///home/sixandam/Desktop/eso-reports-generator/eso-reports.spec) to produce:
+1. Detects Python 3.10+ and sets up `.venv`.
+2. Installs build dependencies (`PyQt6`, `openpyxl`, `playwright`, `pyinstaller`, `pillow`).
+3. Generates the multi-resolution application icon (`assets/app_icon.ico`).
+4. Runs PyInstaller with [`eso-reports.spec`](eso-reports.spec) to produce:
    - `dist/eso-reports-portable.exe` (Single-file portable executable).
    - `dist/eso-reports-windows.zip` (Portable ZIP archive).
-4. Automatically invokes Inno Setup (if installed) to compile [`assets/installer.iss`](file:///home/sixandam/Desktop/eso-reports-generator/assets/installer.iss) into:
+5. Automatically invokes Inno Setup (if installed) to compile [`assets/installer.iss`](assets/installer.iss) into:
    - `dist/eso-reports-setup.exe` (Standard Windows installer wizard).
 
-#### Cloud CI/CD Build
-A GitHub Actions workflow is provided in [`.github/workflows/build-windows.yml`](file:///home/sixandam/Desktop/eso-reports-generator/.github/workflows/build-windows.yml). When committed to GitHub, it automatically compiles all three Windows distribution artifacts on Microsoft's native `windows-latest` cloud runners.
+### Cloud CI/CD Build
+A GitHub Actions workflow is provided in [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml). When committed or tagged on GitHub, it automatically compiles all three Windows distribution artifacts on Microsoft's native `windows-latest` cloud runners. Multi-platform test verification across Ubuntu and Windows runs on every push via [`.github/workflows/test.yml`](.github/workflows/test.yml).
+
+---
+
+## Testing & Quality Assurance
+
+Run the comprehensive unit test suite:
+
+```bash
+# Run all tests
+pytest -v
+```
+
+All 42 unit tests cover data models, aggregator math, Excel rendering, Windows path discovery (including OneDrive), authentication lifecycle, and Qt user interface states.
 
 ---
 
 ## Project Structure
 
 ```
-reports/
+eso-reports-generator/
+├── .github/
+│   └── workflows/
+│       ├── test.yml           # Cross-platform CI (Ubuntu & Windows matrix)
+│       └── build-windows.yml  # Windows PyInstaller & Inno Setup workflow
 ├── assets/
+│   ├── app_icon.ico           # Multi-resolution Windows application icon
 │   ├── check.svg              # Vector completion checkmark
-│   ├── eso-reports.desktop    # Desktop launcher configuration
+│   ├── eso-reports.desktop    # Linux desktop launcher configuration
+│   ├── installer.iss          # Inno Setup Windows installer specification
 │   └── ldhvfd_logo.png        # Lyn-Dan Heights VFD department crest
+├── scripts/
+│   ├── make_icon.py           # Multi-resolution ICO generator
+│   └── setup_linux.sh         # Linux one-click setup & desktop entry script
 ├── src/
-│   ├── __init__.py            # Package metadata
-│   ├── aggregator.py          # Attendance and frequency metric compiler
-│   ├── auth.py                # Session persistence, browser launcher, & MFA
-│   ├── cli.py                 # Click-based CLI entrypoint
-│   ├── config.py              # Central application configuration & paths
-│   ├── excel_exporter.py      # Plain-text OpenPyXL spreadsheet generator
-│   ├── gui.py                 # PyQt6 dark-mode desktop GUI
-│   ├── models.py              # Pydantic schemas & name normalization
-│   └── scraper.py             # Playwright & REST API extraction engine
-├── pyproject.toml             # Package configuration & entrypoints
-├── requirements.txt           # Environment dependencies
+│   └── eso_reports/
+│       ├── __init__.py        # Package exports & metadata
+│       ├── aggregator.py      # Attendance and frequency metric compiler
+│       ├── auth.py            # Session persistence, browser launcher, & MFA
+│       ├── cli.py             # CLI entrypoint
+│       ├── config.py          # Central cross-platform configuration & paths
+│       ├── excel_exporter.py  # Plain-text OpenPyXL spreadsheet generator
+│       ├── gui.py             # PyQt6 dark-mode desktop GUI
+│       ├── models.py          # Pydantic schemas & name normalization
+│       └── scraper.py         # Playwright & REST API extraction engine
+├── tests/
+│   ├── __init__.py
+│   ├── test_aggregator.py     # Aggregator and roster tests
+│   ├── test_auth.py           # SessionManager and authentication tests
+│   ├── test_cli.py            # CLI entrypoint tests
+│   ├── test_excel_exporter.py # Excel formatting and sheet tests
+│   ├── test_gui.py            # PyQt6 GUI and calendar tests
+│   ├── test_scraper.py        # Scraping and date parsing tests
+│   └── test_windows.py        # Windows path resolution and browser detection tests
+├── .gitattributes             # Line ending normalization & binary definitions
+├── .gitignore                 # Version control exclusions
+├── build_windows.bat          # Windows batch build script
+├── build_windows.ps1          # Windows PowerShell build script
+├── eso-reports.spec           # PyInstaller build specification
+├── pyproject.toml             # Modern PEP 621 package metadata & configuration
+├── requirements.txt           # Core runtime dependencies
+├── requirements-dev.txt       # Development and test dependencies
 └── README.md                  # Project documentation
 ```
 
@@ -156,4 +207,4 @@ reports/
 
 ## License & Department Notice
 
-Proprietary tool configured specifically for Lyn-Dan Heights Volunteer Fire Department incident reporting. Ensure ESO Suite credentials and session tokens are protected in compliance with departmental security guidelines.
+Configured for Lyn-Dan Heights Volunteer Fire Department incident reporting. Ensure ESO Suite credentials and session tokens are protected in compliance with departmental security guidelines.

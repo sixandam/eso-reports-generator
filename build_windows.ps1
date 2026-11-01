@@ -9,21 +9,48 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 # 1. Check Python
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+$pythonCmd = $null
+try {
+    $ver = & python --version 2>&1
+    if ($LASTEXITCODE -eq 0 -and $ver -match "Python 3\.") { $pythonCmd = "python" }
+} catch {}
+
 if (-not $pythonCmd) {
-    Write-Host "[ERROR] Python was not found in PATH. Please install Python 3.10+ from python.org." -ForegroundColor Red
+    try {
+        $ver = & py -3 --version 2>&1
+        if ($LASTEXITCODE -eq 0 -and $ver -match "Python 3\.") { $pythonCmd = "py" }
+    } catch {}
+}
+
+if (-not $pythonCmd) {
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+        "$env:ProgramFiles\Python3*\python.exe"
+    )
+    foreach ($cand in $candidates) {
+        $found = Get-Item $cand -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $pythonCmd = $found.FullName; break }
+    }
+}
+
+if (-not $pythonCmd) {
+    Write-Host "[ERROR] Python was not found in PATH or standard install locations. Please install Python 3.10+ from python.org." -ForegroundColor Red
     exit 1
 }
 
 # 2. Virtual Environment
 if (-not (Test-Path ".venv")) {
-    Write-Host "[1/6] Creating Python virtual environment..." -ForegroundColor Yellow
-    python -m venv .venv
+    Write-Host "[1/6] Creating Python virtual environment using $pythonCmd..." -ForegroundColor Yellow
+    if ($pythonCmd -eq "py") {
+        & py -3 -m venv .venv
+    } else {
+        & $pythonCmd -m venv .venv
+    }
 }
 
 Write-Host "[2/6] Activating virtual environment and installing dependencies..." -ForegroundColor Yellow
 & ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
-& ".\.venv\Scripts\pip.exe" install -r requirements.txt pyinstaller pillow
+& ".\.venv\Scripts\python.exe" -m pip install -e ".[dev]" pyinstaller pillow
 
 # 3. Generate Icon
 Write-Host "[3/6] Generating multi-resolution application icon..." -ForegroundColor Yellow
@@ -31,7 +58,7 @@ Write-Host "[3/6] Generating multi-resolution application icon..." -ForegroundCo
 
 # 4. PyInstaller Build
 Write-Host "[4/6] Compiling standalone Windows executables with PyInstaller..." -ForegroundColor Yellow
-& ".\.venv\Scripts\pyinstaller.exe" eso-reports.spec --clean --noconfirm
+& ".\.venv\Scripts\python.exe" -m PyInstaller eso-reports.spec --clean --noconfirm
 
 # 5. Create Portable ZIP
 Write-Host "[5/6] Creating portable ZIP archive..." -ForegroundColor Yellow
@@ -69,4 +96,3 @@ if (Test-Path "dist\eso-reports-portable.exe") { Write-Host " - Portable Executa
 if (Test-Path "dist\eso-reports-windows.zip")  { Write-Host " - Portable ZIP Archive: dist\eso-reports-windows.zip" -ForegroundColor Green }
 if (Test-Path "dist\eso-reports-setup.exe")    { Write-Host " - Setup Installer:     dist\eso-reports-setup.exe" -ForegroundColor Green }
 Write-Host "=====================================================================`n" -ForegroundColor Cyan
-

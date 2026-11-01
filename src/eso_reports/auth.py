@@ -16,7 +16,7 @@ from typing import Callable, Iterator, Optional, Tuple
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 from rich.console import Console
 
-from src.config import get_default_session_file, ESO_SEARCH_URL
+from .config import get_default_session_file, ESO_SEARCH_URL
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -28,7 +28,7 @@ def find_system_browser() -> Optional[str]:
     """
     Finds installed system Chromium, Microsoft Edge, or Google Chrome executable.
     Prioritizes pre-installed Microsoft Edge on Windows, standard Google Chrome,
-    and Linux package binaries.
+    and Linux / macOS package binaries.
     """
     if sys.platform == "win32":
         candidates = [
@@ -40,27 +40,29 @@ def find_system_browser() -> Optional[str]:
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            # Brave Browser
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
         ]
         # Also check Windows Registry App Paths
         try:
             import winreg
-            for exe_key in ("msedge.exe", "chrome.exe"):
+            for exe_key in ("msedge.exe", "chrome.exe", "brave.exe"):
                 try:
-                    key = winreg.OpenKey(
+                    with winreg.OpenKey(
                         winreg.HKEY_LOCAL_MACHINE,
                         rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_key}",
-                    )
-                    path, _ = winreg.QueryValueEx(key, "")
-                    winreg.CloseKey(key)
-                    if path and Path(path).is_file():
-                        candidates.append(path)
+                    ) as key:
+                        path, _ = winreg.QueryValueEx(key, "")
+                        if path and Path(path).is_file():
+                            candidates.append(path)
                 except Exception:
                     pass
         except Exception:
             pass
 
         try:
-            for bin_name in ("msedge", "chrome"):
+            for bin_name in ("msedge", "chrome", "brave"):
                 found = shutil.which(bin_name)
                 if found:
                     candidates.append(found)
@@ -68,6 +70,17 @@ def find_system_browser() -> Optional[str]:
             pass
 
         for p in candidates:
+            if Path(p).is_file():
+                return p
+        return None
+    elif sys.platform == "darwin":
+        mac_candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+        for p in mac_candidates:
             if Path(p).is_file():
                 return p
         return None
@@ -79,6 +92,8 @@ def find_system_browser() -> Optional[str]:
             "chromium-browser",
             "microsoft-edge-stable",
             "microsoft-edge",
+            "brave-browser",
+            "vivaldi",
         ):
             path = shutil.which(bin_name)
             if path:
@@ -89,25 +104,41 @@ def find_system_browser() -> Optional[str]:
 def _launch_browser(playwright: Playwright, launch_args: dict) -> Browser:
     """
     Launches a Chromium browser instance using the specified arguments.
-    Gracefully falls back to secondary channels (e.g. Chrome or bundled Chromium)
-    if the primary channel (e.g. Edge) is unavailable on Windows.
+    Gracefully falls back across executable paths, system channels (Edge, Chrome),
+    and bundled Playwright Chromium if the primary candidate fails.
     """
     try:
         return playwright.chromium.launch(**launch_args)
     except Exception as e:
+        logger.debug("Primary browser launch attempt failed: %s", e)
+        # 1. If an executable_path failed, retry without it using channels/bundled
+        if "executable_path" in launch_args:
+            fallback = dict(launch_args)
+            fallback.pop("executable_path", None)
+            if sys.platform == "win32":
+                fallback.setdefault("channel", "msedge")
+            try:
+                return _launch_browser(playwright, fallback)
+            except Exception:
+                pass
+
+        # 2. If a channel failed, cascade msedge -> chrome -> bundled
         if "channel" in launch_args:
             fallback_args = dict(launch_args)
-            if fallback_args.get("channel") == "msedge":
+            current_channel = fallback_args.get("channel")
+            if current_channel == "msedge":
                 fallback_args["channel"] = "chrome"
                 try:
                     return playwright.chromium.launch(**fallback_args)
                 except Exception:
                     pass
             fallback_args.pop("channel", None)
-            return playwright.chromium.launch(**fallback_args)
+            try:
+                return playwright.chromium.launch(**fallback_args)
+            except Exception:
+                pass
+
         raise e
-
-
 class SessionManager:
     """Manages browser sessions and persistent authentication for ESO Suite."""
 

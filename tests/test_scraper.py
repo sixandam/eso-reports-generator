@@ -1,7 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
-from src.scraper import ESOScraper
-from src.models import Incident
+from eso_reports.scraper import ESOScraper
+from eso_reports.models import Incident
 
 
 def test_parse_incident_dict_overwrites_status_with_core_type(tmp_path: Path):
@@ -55,14 +55,14 @@ def test_parse_incident_dict_overwrites_status_with_core_type(tmp_path: Path):
 
 
 def test_format_date_for_eso():
-    from src.scraper import format_date_for_eso
+    from eso_reports.scraper import format_date_for_eso
     assert format_date_for_eso("2026-09-01") == "09/01/2026"
     assert format_date_for_eso("2026/09/30") == "09/30/2026"
     assert format_date_for_eso("09/01/2026") == "09/01/2026"
 
 
 def test_is_uuid():
-    from src.scraper import is_uuid
+    from eso_reports.scraper import is_uuid
     assert is_uuid("095140f5-fde5-ed11-a81c-000d3ae4ae10") is True
     assert is_uuid("CO15202600407") is False
     assert is_uuid("10852664") is False

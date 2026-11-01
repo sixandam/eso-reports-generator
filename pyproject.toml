@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "eso-reports"
 version = "0.1.0"
 description = "Automated ESO Suite Fire Incidents Report Generator"
-authors = [{ name = "Reports Team" }]
+authors = [{ name = "Lyn-Dan Heights VFD Reports Team" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,15 +18,49 @@ dependencies = [
     "PyQt6>=6.6.0",
     "Pillow>=10.0.0",
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
+keywords = ["eso", "fire", "incident", "reports", "spreadsheet", "automation", "rms"]
 
 [project.optional-dependencies]
 test = [
     "pytest>=7.0.0",
+    "pytest-qt>=4.4.0",
+]
+build = [
+    "pyinstaller>=6.0.0",
+    "pillow>=10.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.4.0",
+    "pyinstaller>=6.0.0",
+    "pillow>=10.0.0",
 ]
 
 [project.scripts]
-eso-reports = "src.cli:main"
-eso-reports-gui = "src.gui:launch_gui"
+eso-reports = "eso_reports.cli:main"
+eso-reports-gui = "eso_reports.gui:launch_gui"
 
-[tool.setuptools]
-packages = ["src"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+eso_reports = ["assets/*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

@@ -18,12 +18,16 @@ def generate_ico():
 
     img = Image.open(LOGO_PATH).convert("RGBA")
     sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    
+
     ICO_PATH.parent.mkdir(parents=True, exist_ok=True)
     img.save(ICO_PATH, format="ICO", sizes=sizes)
     print(f"Successfully generated {ICO_PATH} with sizes: {sizes}")
 
+    pkg_ico = PROJECT_ROOT / "src" / "eso_reports" / "assets" / "app_icon.ico"
+    if pkg_ico.parent.exists():
+        img.save(pkg_ico, format="ICO", sizes=sizes)
+        print(f"Synchronized package icon to {pkg_ico}")
+
 
 if __name__ == "__main__":
     generate_ico()
-

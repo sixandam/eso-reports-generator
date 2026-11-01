@@ -3,8 +3,8 @@ Tests for data models and aggregator metrics logic.
 """
 
 import pytest
-from src.models import Incident, normalize_personnel_name
-from src.aggregator import build_report_dataset
+from eso_reports.models import Incident, normalize_personnel_name
+from eso_reports.aggregator import build_report_dataset
 
 
 def test_normalize_personnel_name():
@@ -24,7 +24,7 @@ def test_normalize_personnel_name():
 
 
 def test_normalize_apparatus_name():
-    from src.aggregator import normalize_apparatus_name
+    from eso_reports.aggregator import normalize_apparatus_name
     assert normalize_apparatus_name("engine 15") == "Engine 15"
     assert normalize_apparatus_name("ENGINE 15") == "Engine 15"
     assert normalize_apparatus_name("pov") == "POV"

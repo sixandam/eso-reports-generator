@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -21,8 +22,8 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from playwright.sync_api import BrowserContext, Page, Response
 from rich.console import Console
 
-from src.config import ESO_SEARCH_URL
-from src.models import Incident, normalize_personnel_name
+from .config import ESO_SEARCH_URL
+from .models import Incident, normalize_personnel_name
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -101,7 +102,7 @@ class ESOScraper:
 
         page.on("response", handle_response)
 
-    def _process_api_payload(self, data: any, url: str):
+    def _process_api_payload(self, data: Any, url: str):
         """Extract Incidents and Resources from backend JSON payloads."""
         if isinstance(data, dict):
             records = data.get("records") or data.get("data") or data.get("results") or data.get("items")
@@ -485,10 +486,21 @@ class ESOScraper:
                 if cookie_str:
                     import concurrent.futures
 
+                    from urllib.parse import urlparse
+                    target_host = urlparse(ESO_SEARCH_URL).netloc or "www.esosuite.net"
+
+                    try:
+                        user_agent = page.evaluate("() => navigator.userAgent")
+                    except Exception:
+                        if sys.platform == "win32":
+                            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+                        else:
+                            user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
                     headers = {
                         "Cookie": cookie_str,
                         "Accept": "application/json",
-                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                        "User-Agent": user_agent,
                         "Connection": "keep-alive",
                     }
 
@@ -505,7 +517,7 @@ class ESOScraper:
 
                         conn = None
                         try:
-                            conn = http.client.HTTPSConnection("www.esosuite.net", timeout=12)
+                            conn = http.client.HTTPSConnection(target_host, timeout=12)
                             for inc in batch:
                                 success = False
                                 for attempt in range(3):
@@ -513,7 +525,7 @@ class ESOScraper:
                                         time.sleep(0.3 * attempt)
                                     try:
                                         if conn is None:
-                                            conn = http.client.HTTPSConnection("www.esosuite.net", timeout=12)
+                                            conn = http.client.HTTPSConnection(target_host, timeout=12)
                                         conn.request("GET", f"/fireincidents/api/incident/{inc.record_id}", headers=headers)
                                         resp = conn.getresponse()
                                         if resp.status == 200:

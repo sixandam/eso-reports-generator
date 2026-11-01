@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 
-from src import config
-from src import auth
+from eso_reports import config
+from eso_reports import auth
 
 
 def test_app_icon_ico_exists():
@@ -62,13 +62,10 @@ def test_find_system_browser_windows_edge(tmp_path: Path, monkeypatch):
     fake_edge.write_text("")
 
     monkeypatch.setattr(sys, "platform", "win32")
-    with patch("src.auth.Path.is_file", side_effect=lambda: True):
-        # When candidates are checked, if a candidate is reported as a file, it returns it
-        with patch("src.auth.Path.is_file") as mock_isfile:
-            mock_isfile.return_value = True
-            browser = auth.find_system_browser()
-            assert browser is not None
-            assert "msedge.exe" in browser.lower()
+    with patch("eso_reports.auth.Path.is_file", return_value=True):
+        browser = auth.find_system_browser()
+        assert browser is not None
+        assert "msedge.exe" in browser.lower()
 
 
 def test_launch_browser_fallback_channel():
@@ -85,4 +82,3 @@ def test_launch_browser_fallback_channel():
     res = auth._launch_browser(mock_playwright, {"headless": True, "channel": "msedge"})
     assert res == mock_browser
     assert mock_playwright.chromium.launch.call_count == 2
-

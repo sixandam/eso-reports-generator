@@ -28,17 +28,17 @@ from PyQt6.QtWidgets import (
     QToolButton,
 )
 
-from src.config import (
+from .config import (
     get_default_session_file,
     DEFAULT_OUTPUT_PATH,
     LOGO_PATH,
     CHECK_SVG_PATH,
     ICO_PATH,
 )
-from src.auth import SessionManager, find_system_browser
-from src.scraper import ESOScraper, format_date_for_eso
-from src.aggregator import build_report_dataset
-from src.excel_exporter import export_report_to_excel
+from .auth import SessionManager, find_system_browser
+from .scraper import ESOScraper, format_date_for_eso
+from .aggregator import build_report_dataset
+from .excel_exporter import export_report_to_excel
 
 
 def load_check_pixmap(size: int = 18) -> QPixmap:
@@ -651,7 +651,7 @@ def launch_gui(output_path: Path = DEFAULT_OUTPUT_PATH):
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("ESO Report Generator")
     if ICO_PATH.exists():
         app.setWindowIcon(QIcon(str(ICO_PATH)))

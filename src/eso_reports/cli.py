@@ -6,7 +6,7 @@ Directly launches the graphical user interface.
 from __future__ import annotations
 
 import click
-from src.gui import launch_gui
+from .gui import launch_gui
 
 
 @click.command(name="eso-reports")

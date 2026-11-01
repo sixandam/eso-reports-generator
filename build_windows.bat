@@ -9,17 +9,34 @@ echo.
 cd /d "%~dp0"
 
 :: 1. Check Python installation
-where python >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Python was not found in PATH. Please install Python 3.10+ from python.org.
+set "PYTHON_EXE="
+python --version >nul 2>nul
+if %ERRORLEVEL% equ 0 set "PYTHON_EXE=python"
+if not defined PYTHON_EXE (
+    py -3 --version >nul 2>nul
+    if %ERRORLEVEL% equ 0 set "PYTHON_EXE=py -3"
+)
+if not defined PYTHON_EXE (
+    for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*") do (
+        if exist "%%D\python.exe" set "PYTHON_EXE=%%D\python.exe"
+    )
+)
+if not defined PYTHON_EXE (
+    for /d %%D in ("%ProgramFiles%\Python3*") do (
+        if exist "%%D\python.exe" set "PYTHON_EXE=%%D\python.exe"
+    )
+)
+if not defined PYTHON_EXE (
+    echo [ERROR] Python was not found in PATH or standard install locations.
+    echo Please install Python 3.10+ from https://www.python.org.
     pause
     exit /b 1
 )
 
 :: 2. Setup Virtual Environment
 if not exist ".venv" (
-    echo [1/6] Creating Python virtual environment...
-    python -m venv .venv
+    echo [1/6] Creating Python virtual environment using !PYTHON_EXE!...
+    !PYTHON_EXE! -m venv .venv
     if %ERRORLEVEL% neq 0 (
         echo [ERROR] Failed to create virtual environment.
         pause
@@ -29,8 +46,8 @@ if not exist ".venv" (
 
 echo [2/6] Activating virtual environment and installing dependencies...
 call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip >nul
-pip install -r requirements.txt pyinstaller pillow
+python -m pip install --upgrade pip >nul 2>&1
+python -m pip install -e ".[dev]" pyinstaller pillow
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to install required packages.
     pause
@@ -48,7 +65,7 @@ if %ERRORLEVEL% neq 0 (
 
 :: 4. Run PyInstaller Build
 echo [4/6] Compiling standalone Windows executables with PyInstaller...
-pyinstaller eso-reports.spec --clean --noconfirm
+python -m PyInstaller eso-reports.spec --clean --noconfirm
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] PyInstaller compilation failed.
     pause
@@ -90,4 +107,3 @@ if exist "dist\eso-reports-setup.exe"    echo  - Setup Installer:     dist\eso-r
 echo =====================================================================
 echo.
 pause
-

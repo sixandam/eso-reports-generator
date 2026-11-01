@@ -2,7 +2,7 @@ import pytest
 from datetime import date, timedelta
 from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import QApplication
-from src.gui import MainWindow, ScraperWorker, PopupCalendar
+from eso_reports.gui import MainWindow, ScraperWorker, PopupCalendar
 
 
 @pytest.fixture(scope="session")
@@ -232,8 +232,8 @@ def test_popup_calendar_ms_forms_style(qapp):
 
 
 def test_scraper_worker_date_format_and_pixmap(qapp, tmp_path):
-    from src.gui import load_check_pixmap
-    from src.scraper import format_date_for_eso
+    from eso_reports.gui import load_check_pixmap
+    from eso_reports.scraper import format_date_for_eso
 
     pixmap = load_check_pixmap(18)
     assert not pixmap.isNull()
@@ -267,9 +267,9 @@ def test_scraper_worker_logging_pipeline(tmp_path, monkeypatch):
         self._log("Session is valid and active.")
         yield (MagicMock(), MagicMock())
 
-    from src.auth import SessionManager
-    from src.scraper import ESOScraper
-    import src.gui as gui_module
+    from eso_reports.auth import SessionManager
+    from eso_reports.scraper import ESOScraper
+    import eso_reports.gui as gui_module
 
     monkeypatch.setattr(SessionManager, "launch_authenticated_context", mock_launch_auth)
 

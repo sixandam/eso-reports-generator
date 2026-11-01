@@ -1,3 +1,4 @@
+# Core runtime dependencies for ESO Suite Reports Generator
 playwright>=1.40.0
 openpyxl>=3.1.2
 pydantic>=2.5.0

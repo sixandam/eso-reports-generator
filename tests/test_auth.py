@@ -1,6 +1,7 @@
+import sys
 from unittest.mock import MagicMock, patch
 from pathlib import Path
-from src.auth import SessionManager
+from eso_reports.auth import SessionManager
 
 
 def test_session_manager_launch_authenticated_context(tmp_path: Path):
@@ -51,7 +52,9 @@ def test_interactive_login_closes_visible_browser_and_returns_headless(tmp_path:
     headful_context.storage_state.assert_called_once_with(path=str(session_file))
 
     # 3. Headless browser launched and context returned
-    mock_playwright.chromium.launch.assert_called_with(headless=True)
+    assert mock_playwright.chromium.launch.call_count == 2
+    second_call_args, second_call_kwargs = mock_playwright.chromium.launch.call_args_list[1]
+    assert second_call_kwargs.get("headless") is True
     assert ctx == headless_context
 
     # 4. Check detailed logging tells
@@ -84,7 +87,7 @@ def test_get_authenticated_context_expired_session_triggers_reauth(tmp_path: Pat
 def test_legacy_session_migration_to_xdg(tmp_path: Path, monkeypatch):
     import os
     import stat
-    from src import config
+    from eso_reports import config
 
     fake_config_home = tmp_path / ".config"
     fake_legacy_file = tmp_path / ".session_state.json"
@@ -100,8 +103,9 @@ def test_legacy_session_migration_to_xdg(tmp_path: Path, monkeypatch):
     assert resolved.exists()
     assert '{"cookies":' in resolved.read_text(encoding="utf-8")
     assert not fake_legacy_file.exists()
-    mode = stat.S_IMODE(os.stat(resolved).st_mode)
-    assert mode == 0o600
+    if sys.platform != "win32":
+        mode = stat.S_IMODE(os.stat(resolved).st_mode)
+        assert mode == 0o600
 
 
 def test_corrupted_session_file_recovers_to_interactive_login(tmp_path: Path):
@@ -116,6 +120,3 @@ def test_corrupted_session_file_recovers_to_interactive_login(tmp_path: Path):
         mock_interactive.assert_called_once()
         assert not session_file.exists()
         assert any("corrupted" in log for log in logs)
-
-
-

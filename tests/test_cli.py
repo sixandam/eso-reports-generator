@@ -4,8 +4,8 @@ Ensures that the CLI has no flags and launches the graphical interface directly.
 """
 
 from click.testing import CliRunner
-from src.cli import main
-import src.cli as cli_module
+from eso_reports.cli import main
+import eso_reports.cli as cli_module
 
 
 def test_cli_help():

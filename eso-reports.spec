@@ -18,12 +18,14 @@ datas = [
 ]
 binaries = []
 hiddenimports = [
+    'eso_reports',
     'PyQt6.QtCore',
     'PyQt6.QtGui',
     'PyQt6.QtWidgets',
     'PyQt6.QtSvg',
     'openpyxl',
     'pydantic',
+    'pydantic_core',
     'click',
     'rich',
 ]
@@ -35,8 +37,8 @@ binaries += p_binaries
 hiddenimports += p_hiddenimports
 
 a = Analysis(
-    ['src/cli.py'],
-    pathex=[],
+    ['src/eso_reports/cli.py'],
+    pathex=['src'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -114,4 +116,3 @@ coll = COLLECT(
     upx_exclude=[],
     name='eso-reports',
 )
-
