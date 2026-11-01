@@ -1,1 +1,1 @@
-# eso-reports
+# eso-report-generator
