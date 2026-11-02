@@ -103,10 +103,10 @@ playwright install chromium
 
 ### Windows Quickstart
 
-#### Option 1: Standalone Portable Executable or Setup Wizard
-For end users who do not have Python installed, download the pre-compiled distribution:
-- **Portable Executable**: Run `eso-reports-portable.exe` directly.
-- **Windows Setup Installer**: Run `eso-reports-setup.exe` to install to `%LOCALAPPDATA%\Programs\ESO Reports` with Start Menu and Desktop shortcuts.
+#### Option 1: Standalone Windows Setup Installer
+For end users who do not have Python installed:
+- Run `eso-reports-setup.exe` to install to `%LOCALAPPDATA%\Programs\ESO Reports` with Start Menu and Desktop shortcuts.
+- No administrative privileges required.
 
 #### Option 2: Local Developer Setup (Windows)
 Open PowerShell or Command Prompt in the repository folder:
@@ -114,31 +114,35 @@ Open PowerShell or Command Prompt in the repository folder:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e ".[test]"
+python -m pip install -e ".[dev]"
 ```
 
 ---
 
-## Building Standalone Executables (Windows)
+## Building the Windows Installer (`setup.exe`)
 
-To export and compile the application for Windows with zero pre-requisites for end-users:
+To build the standalone Windows setup installer (`dist/eso-reports-setup.exe`):
 
-### One-Click Local Build
-On any Windows workstation with Python 3.10+ installed:
-- Double-click `build_windows.bat` or run `.\build_windows.ps1` in PowerShell.
+### One-Click Build
+Run either of the following from the project root:
+```cmd
+build.bat
+```
+or
+```powershell
+python scripts/build_installer.py
+```
 
 This automated script:
-1. Detects Python 3.10+ and sets up `.venv`.
-2. Installs build dependencies (`PyQt6`, `openpyxl`, `playwright`, `pyinstaller`, `pillow`).
-3. Generates the multi-resolution application icon (`assets/app_icon.ico`).
-4. Runs PyInstaller with [`eso-reports.spec`](eso-reports.spec) to produce:
-   - `dist/eso-reports-portable.exe` (Single-file portable executable).
-   - `dist/eso-reports-windows.zip` (Portable ZIP archive).
-5. Automatically invokes Inno Setup (if installed) to compile [`assets/installer.iss`](assets/installer.iss) into:
-   - `dist/eso-reports-setup.exe` (Standard Windows installer wizard).
+1. Verifies the multi-resolution application icon (`assets/app_icon.ico`).
+2. Runs PyInstaller with [`installer/eso-reports.spec`](installer/eso-reports.spec) to package the application and dependencies into `dist/eso-reports/`.
+3. Invokes Inno Setup (`ISCC.exe`) with [`installer/installer.iss`](installer/installer.iss) to compile `dist/eso-reports-setup.exe`.
 
-### Cloud CI/CD Build
-A GitHub Actions workflow is provided in [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml). When committed or tagged on GitHub, it automatically compiles all three Windows distribution artifacts on Microsoft's native `windows-latest` cloud runners. Multi-platform test verification across Ubuntu and Windows runs on every push via [`.github/workflows/test.yml`](.github/workflows/test.yml).
+### Installer Specifications
+- **Per-User Installation**: Installs to `%LOCALAPPDATA%\Programs\ESO Reports` without requiring UAC/administrator elevation.
+- **Self-Contained**: Bundles Python runtime and dependencies with solid LZMA2 compression (~59 MB total download).
+- **System Browser Integration**: Uses built-in Microsoft Edge or Google Chrome for Playwright authentication, avoiding heavy external browser downloads.
+- **Shortcuts & Uninstaller**: Installs Desktop and Start Menu shortcuts and registers a clean Windows uninstaller in Add/Remove Programs.
 
 ---
 
@@ -161,17 +165,19 @@ All 42 unit tests cover data models, aggregator math, Excel rendering, Windows p
 eso-reports-generator/
 ├── .github/
 │   └── workflows/
-│       ├── test.yml           # Cross-platform CI (Ubuntu & Windows matrix)
-│       └── build-windows.yml  # Windows PyInstaller & Inno Setup workflow
+│       └── test.yml           # Cross-platform CI test workflow
 ├── assets/
 │   ├── app_icon.ico           # Multi-resolution Windows application icon
 │   ├── check.svg              # Vector completion checkmark
 │   ├── eso-reports.desktop    # Linux desktop launcher configuration
-│   ├── installer.iss          # Inno Setup Windows installer specification
 │   └── ldhvfd_logo.png        # Lyn-Dan Heights VFD department crest
+├── installer/
+│   ├── eso-reports.spec       # Clean PyInstaller specification
+│   └── installer.iss          # Inno Setup Windows installer specification
 ├── scripts/
+│   ├── build_installer.py     # Windows PyInstaller & Inno Setup compiler script
 │   ├── make_icon.py           # Multi-resolution ICO generator
-│   └── setup_linux.sh         # Linux one-click setup & desktop entry script
+│   └── setup_linux.sh         # Linux one-click setup script
 ├── src/
 │   └── eso_reports/
 │       ├── __init__.py        # Package exports & metadata
@@ -194,9 +200,7 @@ eso-reports-generator/
 │   └── test_windows.py        # Windows path resolution and browser detection tests
 ├── .gitattributes             # Line ending normalization & binary definitions
 ├── .gitignore                 # Version control exclusions
-├── build_windows.bat          # Windows batch build script
-├── build_windows.ps1          # Windows PowerShell build script
-├── eso-reports.spec           # PyInstaller build specification
+├── build.bat                  # One-click Windows build batch wrapper
 ├── pyproject.toml             # Modern PEP 621 package metadata & configuration
 ├── requirements.txt           # Core runtime dependencies
 ├── requirements-dev.txt       # Development and test dependencies

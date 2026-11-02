@@ -140,11 +140,17 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 def get_resource_path(relative_path: str | Path) -> Path:
     """
     Resolves resource paths cleanly across development mode,
-    installed packages, and PyInstaller packaged executables (sys._MEIPASS).
+    installed packages, and PyInstaller packaged executables (sys._MEIPASS or app dir).
     """
     rel = Path(relative_path)
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS) / rel
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            candidate = Path(sys._MEIPASS) / rel
+            if candidate.exists():
+                return candidate
+        exe_candidate = Path(sys.executable).resolve().parent / rel
+        if exe_candidate.exists():
+            return exe_candidate
     repo_asset = PROJECT_ROOT / rel
     if repo_asset.exists():
         return repo_asset

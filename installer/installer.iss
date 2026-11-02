@@ -1,5 +1,5 @@
 ; Inno Setup Script for Lyn-Dan Heights ESO Reports
-; Generates eso-reports-setup.exe installer wizard
+; Compiles dist/eso-reports-setup.exe installer wizard
 
 #define MyAppName "Lyn-Dan Heights ESO Reports"
 #define MyAppVersion "0.1.0"
@@ -22,7 +22,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\dist
 OutputBaseFilename=eso-reports-setup
-SetupIconFile=app_icon.ico
+SetupIconFile=..\assets\app_icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -42,3 +42,4 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
