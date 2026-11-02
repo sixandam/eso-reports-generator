@@ -637,14 +637,13 @@ class MainWindow(QMainWindow):
 
 
 def launch_gui(output_path: Path = DEFAULT_OUTPUT_PATH):
-    """Entrypoint to start the PyQt6 application."""
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            myappid = "LDHVFD.ESOSuiteReports.App.1_0"
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-        except Exception:
-            pass
+    """Entrypoint to start the PyQt6 application on Windows."""
+    try:
+        import ctypes
+        myappid = "LDHVFD.ESOSuiteReports.App.1_0"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception:
+        pass
 
     # Ensure crisp rendering across Windows high-DPI scaling displays
     QApplication.setHighDpiScaleFactorRoundingPolicy(

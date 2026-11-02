@@ -1,7 +1,7 @@
 """
 Central configuration module for ESO Suite Fire Incidents Report Generator.
-Defines application constants, cross-platform directory paths, and default settings.
-Supports Linux (XDG Base Directory) and Windows (%APPDATA%, active Desktop / OneDrive).
+Defines application constants, Windows directory paths, and default settings.
+Configured exclusively for Windows (%APPDATA%, active Desktop / OneDrive).
 """
 
 from __future__ import annotations
@@ -12,114 +12,84 @@ import sys
 
 
 # -----------------------------------------------------------------------------
-# Cross-Platform Directory Specification & Application Paths
+# Windows Directory Specification & Application Paths
 # -----------------------------------------------------------------------------
 APP_NAME = "eso-reports"
 
-# Base configuration & state directories
-if sys.platform == "win32":
-    _appdata = os.environ.get("APPDATA")
-    APP_CONFIG_DIR = Path(_appdata) / APP_NAME if _appdata else Path.home() / "AppData" / "Roaming" / APP_NAME
-    _localappdata = os.environ.get("LOCALAPPDATA", _appdata)
-    APP_STATE_DIR = Path(_localappdata) / APP_NAME if _localappdata else Path.home() / "AppData" / "Local" / APP_NAME
-    XDG_CONFIG_HOME = APP_CONFIG_DIR.parent
-    XDG_STATE_HOME = APP_STATE_DIR.parent
-else:
-    # Standard Linux / XDG paths
-    XDG_CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    XDG_STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    APP_CONFIG_DIR = XDG_CONFIG_HOME / APP_NAME
-    APP_STATE_DIR = XDG_STATE_HOME / APP_NAME
+# Base configuration & state directories on Windows (%APPDATA% and %LOCALAPPDATA%)
+_appdata = os.environ.get("APPDATA")
+APP_CONFIG_DIR = Path(_appdata) / APP_NAME if _appdata else Path.home() / "AppData" / "Roaming" / APP_NAME
 
-# Primary session file path (in config directory with restricted permissions)
-XDG_SESSION_FILE = APP_CONFIG_DIR / "session.json"
+_localappdata = os.environ.get("LOCALAPPDATA", _appdata)
+APP_STATE_DIR = Path(_localappdata) / APP_NAME if _localappdata else Path.home() / "AppData" / "Local" / APP_NAME
+
+# Backward-compatibility aliases
+XDG_CONFIG_HOME = APP_CONFIG_DIR.parent
+XDG_STATE_HOME = APP_STATE_DIR.parent
+
+# Primary session file path (in %APPDATA%\eso-reports)
+SESSION_FILE = APP_CONFIG_DIR / "session.json"
+XDG_SESSION_FILE = SESSION_FILE
 LEGACY_SESSION_FILE = Path.home() / ".session_state.json"
 
 
 def get_default_session_file() -> Path:
     """
-    Returns the resolved session storage path.
-    Prioritizes existing session file. Automatically migrates legacy ~/.session_state.json
-    into XDG_SESSION_FILE with secure permissions if present.
+    Returns the resolved session storage path in %APPDATA%/eso-reports.
+    Automatically migrates legacy ~/.session_state.json if present.
     """
     try:
         APP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        if sys.platform != "win32":
-            os.chmod(APP_CONFIG_DIR, 0o700)
     except Exception:
         pass
 
-    if XDG_SESSION_FILE.exists():
-        return XDG_SESSION_FILE
+    if SESSION_FILE.exists():
+        return SESSION_FILE
 
     if LEGACY_SESSION_FILE.exists():
         try:
             content = LEGACY_SESSION_FILE.read_text(encoding="utf-8")
-            if sys.platform != "win32":
-                flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-                fd = os.open(str(XDG_SESSION_FILE), flags, 0o600)
-                with open(fd, "w", encoding="utf-8") as f:
-                    f.write(content)
-            else:
-                XDG_SESSION_FILE.write_text(content, encoding="utf-8")
+            SESSION_FILE.write_text(content, encoding="utf-8")
             try:
                 LEGACY_SESSION_FILE.unlink()
             except Exception:
                 pass
-            return XDG_SESSION_FILE
+            return SESSION_FILE
         except Exception:
             return LEGACY_SESSION_FILE
 
-    return XDG_SESSION_FILE
+    return SESSION_FILE
 
 
 def get_default_desktop_path() -> Path:
     """
-    Returns the resolved path to the user's active Desktop.
-    On Windows, checks Windows Registry (User Shell Folders) to accurately handle
+    Returns the resolved path to the user's active Desktop on Windows.
+    Checks Windows Registry (User Shell Folders) to accurately handle
     OneDrive Desktop redirection (e.g. C:\\Users\\User\\OneDrive\\Desktop).
-    Falls back gracefully to Path.home() / 'Desktop'.
-    On Linux, checks XDG desktop configuration before falling back.
+    Falls back gracefully to OneDrive directories or Path.home() / 'Desktop'.
     """
-    if sys.platform == "win32":
-        # 1. Try Windows Registry for active Desktop folder
-        try:
-            import winreg
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-            ) as key:
-                desktop_dir, _ = winreg.QueryValueEx(key, "Desktop")
-                expanded = Path(os.path.expandvars(desktop_dir))
-                if expanded.exists():
-                    return expanded
-        except Exception:
-            pass
+    # 1. Try Windows Registry for active Desktop folder
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+        ) as key:
+            desktop_dir, _ = winreg.QueryValueEx(key, "Desktop")
+            expanded = Path(os.path.expandvars(desktop_dir))
+            if expanded.exists():
+                return expanded
+    except Exception:
+        pass
 
-        # 2. Check OneDrive Desktop
-        user_profile = Path(os.environ.get("USERPROFILE", Path.home()))
-        for onedrive_candidate in (
-            user_profile / "OneDrive" / "Desktop",
-            user_profile / "OneDrive - Personal" / "Desktop",
-        ):
-            if onedrive_candidate.exists():
-                return onedrive_candidate
-    else:
-        # Check XDG user directory if available
-        xdg_desktop = os.environ.get("XDG_DESKTOP_DIR")
-        if xdg_desktop and Path(xdg_desktop).exists():
-            return Path(xdg_desktop)
-        user_dirs_file = Path.home() / ".config" / "user-dirs.dirs"
-        if user_dirs_file.exists():
-            try:
-                for line in user_dirs_file.read_text(encoding="utf-8").splitlines():
-                    if line.startswith("XDG_DESKTOP_DIR="):
-                        raw_dir = line.split("=", 1)[1].strip('"').strip("'")
-                        resolved_dir = Path(os.path.expandvars(raw_dir.replace("$HOME", str(Path.home()))))
-                        if resolved_dir.exists():
-                            return resolved_dir
-            except Exception:
-                pass
+    # 2. Check OneDrive Desktop candidates
+    user_profile = Path(os.environ.get("USERPROFILE", Path.home()))
+    for onedrive_candidate in (
+        user_profile / "OneDrive" / "Desktop",
+        user_profile / "OneDrive - Personal" / "Desktop",
+    ):
+        if onedrive_candidate.exists():
+            return onedrive_candidate
 
     desktop = Path.home() / "Desktop"
     if desktop.exists():

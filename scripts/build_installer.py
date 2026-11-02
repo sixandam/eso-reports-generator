@@ -1,8 +1,9 @@
 """
-Automated Windows Installer Build Script for Lyn-Dan Heights ESO Reports.
+Automated Windows Installer & Portable Binary Build Script for Lyn-Dan Heights ESO Reports.
 Builds:
 1. Standalone frozen directory: dist/eso-reports/ (via PyInstaller)
-2. Windows setup installer wizard: dist/eso-reports-setup.exe (via Inno Setup)
+2. Standalone portable executable: dist/eso-reports-portable.exe (via PyInstaller)
+3. Windows setup installer wizard: dist/eso-reports-setup.exe (via Inno Setup)
 """
 
 from __future__ import annotations
@@ -62,8 +63,8 @@ def ensure_icon():
 
 
 def build_pyinstaller():
-    """Runs PyInstaller using installer/eso-reports.spec."""
-    print("\n[1/2] Compiling standalone Windows application with PyInstaller...")
+    """Runs PyInstaller to compile both onedir and portable onefile executables."""
+    print("\n[1/2] Compiling standalone binaries and portable executable with PyInstaller...")
     cmd = [
         sys.executable,
         "-m",
@@ -78,9 +79,15 @@ def build_pyinstaller():
     subprocess.run(cmd, check=True)
 
     app_exe = DIST_DIR / "eso-reports" / "eso-reports.exe"
+    portable_exe = DIST_DIR / "eso-reports-portable.exe"
+
     if not app_exe.exists():
-        raise RuntimeError(f"PyInstaller build finished, but {app_exe} was not found.")
+        raise RuntimeError(f"PyInstaller build finished, but directory binary {app_exe} was not found.")
+    if not portable_exe.exists():
+        raise RuntimeError(f"PyInstaller build finished, but portable binary {portable_exe} was not found.")
+
     print(f"--> Standalone binaries compiled successfully to: {DIST_DIR / 'eso-reports'}")
+    print(f"--> Standalone portable executable ready at:     {portable_exe}")
 
 
 def build_inno_installer(iscc_path: Path):
@@ -93,18 +100,43 @@ def build_inno_installer(iscc_path: Path):
     if not setup_exe.exists():
         raise RuntimeError(f"Inno Setup compilation finished, but {setup_exe} was not found.")
 
-    size_mb = setup_exe.stat().st_size / (1024 * 1024)
-    print("\n" + "=" * 70)
-    print("SUCCESS: Windows Installer Ready!")
-    print(f"  Installer: {setup_exe}")
-    print(f"  Size:      {size_mb:.2f} MB")
-    print("=" * 70)
+
+def print_summary(iscc_path: Path | None):
+    """Prints a clear summary of all generated deliverables."""
+    print("\n" + "=" * 76)
+    print("  BUILD COMPLETE: Windows Distribution Artifacts Ready")
+    print("=" * 76)
+
+    setup_exe = DIST_DIR / "eso-reports-setup.exe"
+    portable_exe = DIST_DIR / "eso-reports-portable.exe"
+    app_dir = DIST_DIR / "eso-reports"
+
+    if setup_exe.exists():
+        size_mb = setup_exe.stat().st_size / (1024 * 1024)
+        print(f"  [1] Setup Wizard:    {setup_exe}")
+        print(f"      Size:            {size_mb:.2f} MB")
+        print("      Description:     Standard Windows installer with Desktop & Start Menu shortcuts")
+        print("                       and uninstaller in Add/Remove Programs.\n")
+
+    if portable_exe.exists():
+        size_mb = portable_exe.stat().st_size / (1024 * 1024)
+        print(f"  [2] Portable Exe:    {portable_exe}")
+        print(f"      Size:            {size_mb:.2f} MB")
+        print("      Description:     Single-file portable executable. Runs immediately without")
+        print("                       installing; can be run from Desktop or USB drive.\n")
+
+    if app_dir.exists():
+        print(f"  [3] Standalone Dir:  {app_dir}")
+        print("      Description:     Unpacked application directory containing eso-reports.exe")
+        print("                       and bundled runtime components.\n")
+
+    print("=" * 76)
 
 
 def main():
-    print("=" * 70)
-    print("  Lyn-Dan Heights ESO Reports - Windows Installer Build Script")
-    print("=" * 70)
+    print("=" * 76)
+    print("  Lyn-Dan Heights ESO Reports - Windows Build Script")
+    print("=" * 76)
 
     # 1. Icon check
     ensure_icon()
@@ -117,15 +149,15 @@ def main():
         print("          cannot be packaged until Inno Setup is installed.")
         print("          Download Inno Setup: https://jrsoftware.org/isdl.php\n")
 
-    # 3. PyInstaller
+    # 3. PyInstaller (builds onedir + portable onefile)
     build_pyinstaller()
 
-    # 4. Inno Setup
+    # 4. Inno Setup (builds setup wizard from onedir)
     if iscc_path:
         build_inno_installer(iscc_path)
-    else:
-        print("\n[NOTE] Standalone directory is ready in dist/eso-reports/.")
-        print("To generate eso-reports-setup.exe, install Inno Setup and re-run this script.")
+
+    # 5. Summary
+    print_summary(iscc_path)
 
 
 if __name__ == "__main__":

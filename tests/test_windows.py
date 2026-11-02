@@ -82,3 +82,21 @@ def test_launch_browser_fallback_channel():
     res = auth._launch_browser(mock_playwright, {"headless": True, "channel": "msedge"})
     assert res == mock_browser
     assert mock_playwright.chromium.launch.call_count == 2
+
+
+def test_spec_file_defines_both_onedir_and_portable_exe():
+    """Verifies that the PyInstaller specification defines both onedir and portable targets."""
+    spec_path = config.PROJECT_ROOT / "installer" / "eso-reports.spec"
+    assert spec_path.exists()
+    content = spec_path.read_text(encoding="utf-8")
+    assert "COLLECT(" in content
+    assert 'name="eso-reports-portable"' in content
+    assert "exe_portable = EXE(" in content
+
+
+def test_root_launch_scripts_exist():
+    """Verifies consumer convenience scripts exist in repository root."""
+    build_bat = config.PROJECT_ROOT / "build.bat"
+    run_bat = config.PROJECT_ROOT / "run.bat"
+    assert build_bat.exists()
+    assert run_bat.exists()

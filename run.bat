@@ -1,0 +1,55 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+
+REM If the compiled portable executable exists, prioritize launching it directly
+if exist "dist\eso-reports-portable.exe" (
+    start "" "dist\eso-reports-portable.exe"
+    exit /b 0
+)
+
+REM If the compiled directory executable exists, launch it
+if exist "dist\eso-reports\eso-reports.exe" (
+    start "" "dist\eso-reports\eso-reports.exe"
+    exit /b 0
+)
+
+REM Otherwise, discover Python and run from source
+set "PYTHON_EXE="
+
+REM 1. Check local virtual environments
+if exist ".venv\Scripts\python.exe" set "PYTHON_EXE=.venv\Scripts\python.exe"
+if exist "venv\Scripts\python.exe" if not defined PYTHON_EXE set "PYTHON_EXE=venv\Scripts\python.exe"
+
+REM 2. Check standard Windows per-user Python install paths
+if not defined PYTHON_EXE if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PYTHON_EXE if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PYTHON_EXE if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+if not defined PYTHON_EXE if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+
+REM 3. Check Program Files Python paths
+if not defined PYTHON_EXE if exist "%ProgramFiles%\Python311\python.exe" set "PYTHON_EXE=%ProgramFiles%\Python311\python.exe"
+if not defined PYTHON_EXE if exist "%ProgramFiles%\Python312\python.exe" set "PYTHON_EXE=%ProgramFiles%\Python312\python.exe"
+if not defined PYTHON_EXE if exist "%ProgramFiles%\Python310\python.exe" set "PYTHON_EXE=%ProgramFiles%\Python310\python.exe"
+
+REM 4. Check Python launcher (py)
+if not defined PYTHON_EXE (
+    py -3 -c "import sys" >nul 2>nul
+    if !ERRORLEVEL! equ 0 set "PYTHON_EXE=py -3"
+)
+
+REM 5. Check PATH python
+if not defined PYTHON_EXE (
+    python -c "import sys" >nul 2>nul
+    if !ERRORLEVEL! equ 0 set "PYTHON_EXE=python"
+)
+
+if not defined PYTHON_EXE (
+    echo [ERROR] Python or pre-compiled ESO Reports executable was not found.
+    echo Please run build.bat or install Python 3.10+ from https://www.python.org.
+    pause
+    exit /b 1
+)
+
+start "" "%PYTHON_EXE%" -m eso_reports.cli
+
