@@ -1,6 +1,0 @@
-# Development and testing dependencies
--r requirements.txt
-pytest>=7.0.0
-pytest-qt>=4.4.0
-pyinstaller>=6.0.0
-

@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller build specification for Lyn-Dan Heights ESO Reports.
+PyInstaller build specification for ESO Reports Generator.
 Builds the standalone directory dist/eso-reports/ for Inno Setup packaging.
 """
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
 # PyInstaller defines SPECPATH as the directory containing this .spec file
-PROJECT_ROOT = Path(SPECPATH).resolve().parent
+PROJECT_ROOT = Path(SPECPATH).resolve().parent.parent
 
 # Collect application assets
 datas = [
@@ -35,7 +35,7 @@ binaries += p_binaries
 hiddenimports += p_hiddenimports
 
 a = Analysis(
-    [str(PROJECT_ROOT / "installer" / "entrypoint.py")],
+    [str(Path(SPECPATH) / "entrypoint.py")],
     pathex=[str(PROJECT_ROOT / "src")],
     binaries=binaries,
     datas=datas,

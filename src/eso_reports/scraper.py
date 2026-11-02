@@ -492,7 +492,10 @@ class ESOScraper:
                     try:
                         user_agent = page.evaluate("() => navigator.userAgent")
                     except Exception:
-                        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+                        if sys.platform == "win32":
+                            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+                        else:
+                            user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
                     headers = {
                         "Cookie": cookie_str,

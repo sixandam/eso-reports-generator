@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ESO Reports
+Comment=Generate incident attendance and apparatus reports
+Exec=eso-reports-gui
+Icon=eso-reports
+Terminal=false
+StartupNotify=true
+Categories=Office;Spreadsheet;
+

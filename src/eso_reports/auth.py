@@ -26,52 +26,79 @@ DEFAULT_SESSION_FILE = get_default_session_file()
 
 def find_system_browser() -> Optional[str]:
     """
-    Finds installed system Chromium, Microsoft Edge, or Google Chrome executable on Windows.
+    Finds installed system Chromium, Microsoft Edge, or Google Chrome executable.
     Prioritizes pre-installed Microsoft Edge on Windows, standard Google Chrome,
-    Brave, or Windows Registry App Paths.
+    Brave, or Windows Registry App Paths, and standard Linux/macOS browser binaries.
     """
-    candidates = [
-        # Standard Edge locations (64-bit and 32-bit Program Files)
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
-        # Standard Chrome locations
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        # Brave Browser
-        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
-    ]
-    # Also check Windows Registry App Paths
-    try:
-        import winreg
-        for exe_key in ("msedge.exe", "chrome.exe", "brave.exe"):
-            try:
-                with winreg.OpenKey(
-                    winreg.HKEY_LOCAL_MACHINE,
-                    rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_key}",
-                ) as key:
-                    path, _ = winreg.QueryValueEx(key, "")
-                    if path and Path(path).is_file():
-                        candidates.append(path)
-            except Exception:
-                pass
-    except Exception:
-        pass
+    if sys.platform == "win32":
+        candidates = [
+            # Standard Edge locations (64-bit and 32-bit Program Files)
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+            # Standard Chrome locations
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            # Brave Browser
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        ]
+        # Also check Windows Registry App Paths
+        try:
+            import winreg
+            for exe_key in ("msedge.exe", "chrome.exe", "brave.exe"):
+                try:
+                    with winreg.OpenKey(
+                        winreg.HKEY_LOCAL_MACHINE,
+                        rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_key}",
+                    ) as key:
+                        path, _ = winreg.QueryValueEx(key, "")
+                        if path and Path(path).is_file():
+                            candidates.append(path)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    try:
-        for bin_name in ("msedge", "chrome", "brave"):
-            found = shutil.which(bin_name)
-            if found:
-                candidates.append(found)
-    except Exception:
-        pass
+        try:
+            for bin_name in ("msedge", "chrome", "brave"):
+                found = shutil.which(bin_name)
+                if found:
+                    candidates.append(found)
+        except Exception:
+            pass
 
-    for p in candidates:
-        if Path(p).is_file():
-            return p
-    return None
+        for p in candidates:
+            if Path(p).is_file():
+                return p
+        return None
+    elif sys.platform == "darwin":
+        mac_candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+        for p in mac_candidates:
+            if Path(p).is_file():
+                return p
+        return None
+    else:
+        for bin_name in (
+            "google-chrome-stable",
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge-stable",
+            "microsoft-edge",
+            "brave-browser",
+            "vivaldi",
+        ):
+            path = shutil.which(bin_name)
+            if path:
+                return path
+        return None
 
 
 def _launch_browser(playwright: Playwright, launch_args: dict) -> Browser:
@@ -88,7 +115,8 @@ def _launch_browser(playwright: Playwright, launch_args: dict) -> Browser:
         if "executable_path" in launch_args:
             fallback = dict(launch_args)
             fallback.pop("executable_path", None)
-            fallback.setdefault("channel", "msedge")
+            if sys.platform == "win32":
+                fallback.setdefault("channel", "msedge")
             try:
                 return _launch_browser(playwright, fallback)
             except Exception:
@@ -186,7 +214,7 @@ class SessionManager:
         }
         if browser_exe:
             launch_args["executable_path"] = browser_exe
-        else:
+        elif sys.platform == "win32":
             launch_args["channel"] = "msedge"
 
         browser = _launch_browser(playwright, launch_args)
@@ -213,9 +241,27 @@ class SessionManager:
                 pass
             raise RuntimeError(f"Interactive authentication failed or timed out: {e}")
 
-        # Persist storage state securely in %APPDATA%\eso-reports
+        # Persist storage state securely with restricted permissions (0700 dir, 0600 file on POSIX)
         self.session_path.parent.mkdir(parents=True, exist_ok=True)
+        if sys.platform != "win32":
+            try:
+                os.chmod(self.session_path.parent, 0o700)
+            except Exception:
+                pass
+
+            # Pre-create file with 0600 permissions before Playwright writes to it
+            try:
+                fd = os.open(str(self.session_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                os.close(fd)
+            except Exception:
+                pass
+
         context.storage_state(path=str(self.session_path))
+        if sys.platform != "win32":
+            try:
+                os.chmod(self.session_path, 0o600)
+            except Exception:
+                pass
         self._log(f"Session state saved to {self.session_path.resolve()}.")
 
         # Close interactive browser window immediately so user cannot see or interfere with scraping
@@ -232,7 +278,7 @@ class SessionManager:
             headless_args = {"headless": True}
             if browser_exe:
                 headless_args["executable_path"] = browser_exe
-            else:
+            elif sys.platform == "win32":
                 headless_args["channel"] = "msedge"
             headless_browser = _launch_browser(playwright, headless_args)
             return headless_browser.new_context(storage_state=str(self.session_path))
@@ -257,7 +303,7 @@ class SessionManager:
         launch_args = {"headless": headless}
         if system_browser:
             launch_args["executable_path"] = system_browser
-        else:
+        elif sys.platform == "win32":
             launch_args["channel"] = "msedge"
 
         session_valid_json = False

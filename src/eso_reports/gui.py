@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
             self.logo_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
             header_layout.addWidget(self.logo_label)
 
-        self.title_label = QLabel("Lyn-Dan Heights ESO Reports")
+        self.title_label = QLabel("ESO Report Generator")
         self.title_label.setObjectName("headerTitle")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         header_layout.addWidget(self.title_label)
@@ -637,13 +637,14 @@ class MainWindow(QMainWindow):
 
 
 def launch_gui(output_path: Path = DEFAULT_OUTPUT_PATH):
-    """Entrypoint to start the PyQt6 application on Windows."""
-    try:
-        import ctypes
-        myappid = "LDHVFD.ESOSuiteReports.App.1_0"
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-    except Exception:
-        pass
+    """Entrypoint to start the PyQt6 application."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            myappid = "ESOSuite.ReportsGenerator.1_0"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
 
     # Ensure crisp rendering across Windows high-DPI scaling displays
     QApplication.setHighDpiScaleFactorRoundingPolicy(

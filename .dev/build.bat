@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 
 set "PYTHON_EXE="
 
@@ -39,5 +39,5 @@ if not defined PYTHON_EXE (
 )
 
 echo Using Python: !PYTHON_EXE!
-"!PYTHON_EXE!" scripts\build_installer.py %*
+"!PYTHON_EXE!" .dev\scripts\build_installer.py %*
 

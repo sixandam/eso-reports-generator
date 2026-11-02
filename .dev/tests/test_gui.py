@@ -28,7 +28,7 @@ def test_gui_window_initialization(qapp, tmp_path):
     assert window.btn_start_report.isEnabled()
     assert window.btn_start_report.text() == "Start report"
     assert window.title_label is not None
-    assert "Lyn-Dan Heights" in window.title_label.text()
+    assert "ESO Report" in window.title_label.text()
     assert window.logo_label is not None
 
     # Header is inline horizontal layout with logo to the left of the title

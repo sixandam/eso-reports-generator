@@ -1,10 +1,10 @@
-; Inno Setup Script for Lyn-Dan Heights ESO Reports
+; Inno Setup Script for ESO Reports
 ; Compiles dist/eso-reports-setup.exe installer wizard
 
-#define MyAppName "Lyn-Dan Heights ESO Reports"
+#define MyAppName "ESO Reports"
 #define MyAppVersion "0.1.0"
-#define MyAppPublisher "Lyn-Dan Heights Volunteer Fire Department"
-#define MyAppURL "https://www.ldhvfd.org"
+#define MyAppPublisher "ESO Reports"
+#define MyAppURL "https://www.esosuite.net"
 #define MyAppExeName "eso-reports.exe"
 
 [Setup]
@@ -20,9 +20,9 @@ DisableProgramGroupPage=yes
 ; Per-user installation: no administrative privileges required
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=..\dist
+OutputDir=..\..\dist
 OutputBaseFilename=eso-reports-setup
-SetupIconFile=..\assets\app_icon.ico
+SetupIconFile=..\..\assets\app_icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -34,10 +34,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "..\dist\eso-reports\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\eso-reports\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Lyn-Dan Heights VFD\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autoprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]

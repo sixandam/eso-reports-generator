@@ -1,9 +1,9 @@
 """
-Automated Windows Installer & Portable Binary Build Script for Lyn-Dan Heights ESO Reports.
+Automated Windows Installer & Portable Binary Build Script for ESO Reports Generator.
 Builds:
 1. Standalone frozen directory: dist/eso-reports/ (via PyInstaller)
-2. Standalone portable executable: dist/eso-reports-portable.exe (via PyInstaller)
-3. Windows setup installer wizard: dist/eso-reports-setup.exe (via Inno Setup)
+2. Standalone portable executable: Windows/eso-reports-portable.exe (via PyInstaller)
+3. Windows setup installer wizard: Windows/eso-reports-setup.exe (via Inno Setup)
 """
 
 from __future__ import annotations
@@ -13,12 +13,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INSTALLER_DIR = PROJECT_ROOT / "installer"
+DEV_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = DEV_DIR.parent
+INSTALLER_DIR = DEV_DIR / "installer"
 DIST_DIR = PROJECT_ROOT / "dist"
+WINDOWS_DIR = PROJECT_ROOT / "Windows"
 SPEC_FILE = INSTALLER_DIR / "eso-reports.spec"
 ISS_FILE = INSTALLER_DIR / "installer.iss"
-ICON_SCRIPT = PROJECT_ROOT / "scripts" / "make_icon.py"
+ICON_SCRIPT = DEV_DIR / "scripts" / "make_icon.py"
 ICON_PATH = PROJECT_ROOT / "assets" / "app_icon.ico"
 
 
@@ -86,8 +88,11 @@ def build_pyinstaller():
     if not portable_exe.exists():
         raise RuntimeError(f"PyInstaller build finished, but portable binary {portable_exe} was not found.")
 
+    WINDOWS_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(portable_exe, WINDOWS_DIR / "eso-reports-portable.exe")
+
     print(f"--> Standalone binaries compiled successfully to: {DIST_DIR / 'eso-reports'}")
-    print(f"--> Standalone portable executable ready at:     {portable_exe}")
+    print(f"--> Standalone portable executable ready at:     {WINDOWS_DIR / 'eso-reports-portable.exe'}")
 
 
 def build_inno_installer(iscc_path: Path):
@@ -100,6 +105,9 @@ def build_inno_installer(iscc_path: Path):
     if not setup_exe.exists():
         raise RuntimeError(f"Inno Setup compilation finished, but {setup_exe} was not found.")
 
+    WINDOWS_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(setup_exe, WINDOWS_DIR / "eso-reports-setup.exe")
+
 
 def print_summary(iscc_path: Path | None):
     """Prints a clear summary of all generated deliverables."""
@@ -107,8 +115,14 @@ def print_summary(iscc_path: Path | None):
     print("  BUILD COMPLETE: Windows Distribution Artifacts Ready")
     print("=" * 76)
 
-    setup_exe = DIST_DIR / "eso-reports-setup.exe"
-    portable_exe = DIST_DIR / "eso-reports-portable.exe"
+    setup_exe = WINDOWS_DIR / "eso-reports-setup.exe"
+    if not setup_exe.exists():
+        setup_exe = DIST_DIR / "eso-reports-setup.exe"
+
+    portable_exe = WINDOWS_DIR / "eso-reports-portable.exe"
+    if not portable_exe.exists():
+        portable_exe = DIST_DIR / "eso-reports-portable.exe"
+
     app_dir = DIST_DIR / "eso-reports"
 
     if setup_exe.exists():
@@ -135,7 +149,7 @@ def print_summary(iscc_path: Path | None):
 
 def main():
     print("=" * 76)
-    print("  Lyn-Dan Heights ESO Reports - Windows Build Script")
+    print("  ESO Reports Generator - Windows Build Script")
     print("=" * 76)
 
     # 1. Icon check
@@ -162,4 +176,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

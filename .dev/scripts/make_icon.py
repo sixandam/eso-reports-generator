@@ -1,14 +1,16 @@
 """
-Generates multi-resolution Windows .ico file from assets/ldhvfd_logo.png.
+Generates multi-resolution Windows .ico file from assets/logo.png (or assets/ldhvfd_logo.png).
 Produces assets/app_icon.ico containing 16, 24, 32, 48, 64, 128, and 256px mipmaps.
 """
 
 from pathlib import Path
 from PIL import Image
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
-LOGO_PATH = ASSETS_DIR / "ldhvfd_logo.png"
+LOGO_PATH = ASSETS_DIR / "logo.png"
+if not LOGO_PATH.exists():
+    LOGO_PATH = ASSETS_DIR / "ldhvfd_logo.png"
 ICO_PATH = ASSETS_DIR / "app_icon.ico"
 
 

@@ -86,7 +86,7 @@ def test_launch_browser_fallback_channel():
 
 def test_spec_file_defines_both_onedir_and_portable_exe():
     """Verifies that the PyInstaller specification defines both onedir and portable targets."""
-    spec_path = config.PROJECT_ROOT / "installer" / "eso-reports.spec"
+    spec_path = config.PROJECT_ROOT / ".dev" / "installer" / "eso-reports.spec"
     assert spec_path.exists()
     content = spec_path.read_text(encoding="utf-8")
     assert "COLLECT(" in content
@@ -94,9 +94,42 @@ def test_spec_file_defines_both_onedir_and_portable_exe():
     assert "exe_portable = EXE(" in content
 
 
-def test_root_launch_scripts_exist():
-    """Verifies consumer convenience scripts exist in repository root."""
-    build_bat = config.PROJECT_ROOT / "build.bat"
-    run_bat = config.PROJECT_ROOT / "run.bat"
+def test_dev_build_script_exists():
+    """Verifies build script exists in .dev developer tools folder."""
+    build_bat = config.PROJECT_ROOT / ".dev" / "build.bat"
     assert build_bat.exists()
-    assert run_bat.exists()
+
+
+def test_windows_deliverables_exist():
+    """Verifies setup and portable executables exist in Windows/ folder."""
+    win_dir = config.PROJECT_ROOT / "Windows"
+    assert win_dir.exists()
+    assert (win_dir / "eso-reports-setup.exe").exists()
+    assert (win_dir / "eso-reports-portable.exe").exists()
+
+
+def test_linux_deliverables_exist():
+    """Verifies setup script, run script, and desktop file exist in Linux/ folder."""
+    linux_dir = config.PROJECT_ROOT / "Linux"
+    assert linux_dir.exists()
+    assert (linux_dir / "setup.sh").exists()
+    assert (linux_dir / "run.sh").exists()
+    assert (linux_dir / "eso-reports.desktop").exists()
+
+
+def test_find_system_browser_linux(monkeypatch):
+    """Verifies Linux system browser detection via shutil.which."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}" if x == "google-chrome" else None):
+        res = auth.find_system_browser()
+        assert res == "/usr/bin/google-chrome"
+
+
+def test_get_default_desktop_path_linux(tmp_path: Path, monkeypatch):
+    """Verifies XDG desktop path resolution on Linux."""
+    fake_desktop = tmp_path / "Desktop"
+    fake_desktop.mkdir()
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DESKTOP_DIR", str(fake_desktop))
+    desktop = config.get_default_desktop_path()
+    assert desktop == fake_desktop

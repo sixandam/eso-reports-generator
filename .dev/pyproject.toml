@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "eso-reports"
 version = "0.1.0"
 description = "Automated ESO Suite Fire Incidents Report Generator"
-authors = [{ name = "Lyn-Dan Heights VFD Reports Team" }]
-readme = "README.md"
+authors = [{ name = "ESO Reports Team" }]
+readme = "../README.md"
 requires-python = ">=3.10"
 dependencies = [
     "playwright>=1.40.0",
@@ -22,6 +22,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -51,15 +52,15 @@ eso-reports = "eso_reports.cli:main"
 eso-reports-gui = "eso_reports.gui:launch_gui"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["../src"]
 
 [tool.setuptools.package-data]
 eso_reports = ["assets/*"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", ".dev/tests"]
+pythonpath = ["../src", "src"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

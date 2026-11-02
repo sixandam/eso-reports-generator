@@ -84,14 +84,15 @@ def test_get_authenticated_context_expired_session_triggers_reauth(tmp_path: Pat
             assert any("Authentication failed." in log for log in logs)
 
 
-def test_legacy_session_migration_to_appdata(tmp_path: Path, monkeypatch):
+def test_legacy_session_migration_to_config_dir(tmp_path: Path, monkeypatch):
+    import os
+    import stat
     from eso_reports import config
 
-    fake_appdata = tmp_path / "AppData" / "Roaming"
+    fake_config_dir = tmp_path / "eso-reports"
     fake_legacy_file = tmp_path / ".session_state.json"
     fake_legacy_file.write_text('{"cookies": [{"name": "auth", "value": "secret"}]}', encoding="utf-8")
 
-    fake_config_dir = fake_appdata / "eso-reports"
     monkeypatch.setattr(config, "APP_CONFIG_DIR", fake_config_dir)
     monkeypatch.setattr(config, "SESSION_FILE", fake_config_dir / "session.json")
     monkeypatch.setattr(config, "LEGACY_SESSION_FILE", fake_legacy_file)
@@ -101,6 +102,9 @@ def test_legacy_session_migration_to_appdata(tmp_path: Path, monkeypatch):
     assert resolved.exists()
     assert '{"cookies":' in resolved.read_text(encoding="utf-8")
     assert not fake_legacy_file.exists()
+    if sys.platform != "win32":
+        mode = stat.S_IMODE(os.stat(resolved).st_mode)
+        assert mode == 0o600
 
 
 def test_corrupted_session_file_recovers_to_interactive_login(tmp_path: Path):
