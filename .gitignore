@@ -47,6 +47,10 @@ output/
 # Playwright
 .playwright/
 
+# Development planning & internal notes
+PLAN.md
+
+
 # IDE & OS
 .vscode/
 .idea/
