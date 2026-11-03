@@ -92,4 +92,51 @@ def test_scraper_logging_callback(tmp_path: Path):
     assert "Incident CO15202600444 found." in logs
 
 
+def test_scraper_auto_learn_badge_from_payload(tmp_path: Path):
+    from eso_reports.models import Member
+    mock_context = MagicMock()
+    custom_members = [
+        Member(name="Wellons, Charles", primary_id="1534", aliases=["1534"], active=True)
+    ]
+
+    scraper = ESOScraper(
+        context=mock_context,
+        members=custom_members,
+    )
+
+    payload = {
+        "incidentId": 10194399,
+        "core": {
+            "incidentNumber": "CO15202600999",
+            "incidentOnsetDateTime": "2026-09-28T16:56:02-04:00",
+        },
+        "resources2": {
+            "units": [
+                {
+                    "unitId": {"name": "Engine 15"},
+                    "personnel": [
+                        {"agencyPerson": {"name": "Smith, John | 1516"}},
+                    ],
+                }
+            ]
+        },
+        "cadNotes": "[16:56:30] 15-16 EN ROUTE POV",
+    }
+
+    scraper._parse_incident_dict(payload)
+
+    # 1. Smith, John with badge 1516 should be auto-learned into scraper.members
+    john = next((m for m in scraper.members if m.name == "Smith, John"), None)
+    assert john is not None
+    assert john.primary_id == "1516"
+    assert "15-16" in john.aliases
+
+    # 2. Because CADParser was refreshed with the auto-learned member, the CAD markup "15-16" was mapped to Smith, John!
+    inc = scraper.intercepted_incidents["CO15202600999"]
+    assert "Smith, John" in inc.radio_responders
+    assert "15-16" in inc.radio_markups_found
+    assert len(inc.unmapped_radio_marks) == 0
+
+
+
 

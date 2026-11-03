@@ -355,10 +355,17 @@ class ScraperWorker(QThread):
                 )
                 incidents = scraper.search_and_extract(self.start_date, self.end_date)
 
+                # Persist any auto-learned member radio numbers discovered from ESO payloads
+                if scraper.members:
+                    try:
+                        save_members(scraper.members)
+                    except Exception:
+                        pass
+
                 self.log_signal.emit("Analyzing rosters and attendance...")
                 dataset = build_report_dataset(
                     incidents=incidents,
-                    members_db=members,
+                    members_db=scraper.members,
                     start_date=start_disp,
                     end_date=end_disp,
                     log_callback=lambda msg: self.log_signal.emit(msg),

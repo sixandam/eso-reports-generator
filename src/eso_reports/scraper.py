@@ -23,8 +23,8 @@ from playwright.sync_api import BrowserContext, Page, Response
 from rich.console import Console
 
 from .config import ESO_SEARCH_URL
-from .models import Incident, normalize_personnel_name, Member
-from .member_manager import load_members
+from .models import Incident, normalize_personnel_name, Member, extract_name_and_badge
+from .member_manager import load_members, auto_learn_member_badge
 from .cad_parser import CADParser
 
 logger = logging.getLogger(__name__)
@@ -295,11 +295,14 @@ class ESOScraper:
                         if not p_name:
                             p_name = p.get("fullName") or p.get("name")
                         if p_name:
-                            norm = normalize_personnel_name(p_name)
+                            norm, badge = extract_name_and_badge(p_name)
                             if norm and norm not in responders:
                                 responders.append(norm)
                             if app_name and norm:
                                 person_apparatus[norm] = str(app_name).strip()
+                            if norm and badge and hasattr(self, "members") and self.members is not None:
+                                if auto_learn_member_badge(self.members, norm, badge):
+                                    self.cad_parser = CADParser(self.members)
 
         # Check personnelNotOnUnit
         not_on_unit = resources2.get("personnelNotOnUnit") or []
@@ -308,9 +311,12 @@ class ESOScraper:
                 agency_person = p.get("agencyPerson")
                 p_name = agency_person.get("name") if isinstance(agency_person, dict) else p.get("name")
                 if p_name:
-                    norm = normalize_personnel_name(p_name)
+                    norm, badge = extract_name_and_badge(p_name)
                     if norm and norm not in responders:
                         responders.append(norm)
+                    if norm and badge and hasattr(self, "members") and self.members is not None:
+                        if auto_learn_member_badge(self.members, norm, badge):
+                            self.cad_parser = CADParser(self.members)
 
         # Fallback check for raw apparatus or personnel at top level
         raw_resources = item.get("resources") or item.get("apparatus")
@@ -325,9 +331,12 @@ class ESOScraper:
         if isinstance(raw_roster, list):
             for p in raw_roster:
                 if isinstance(p, str):
-                    norm = normalize_personnel_name(p)
+                    norm, badge = extract_name_and_badge(p)
                     if norm and norm not in responders:
                         responders.append(norm)
+                    if norm and badge and hasattr(self, "members") and self.members is not None:
+                        if auto_learn_member_badge(self.members, norm, badge):
+                            self.cad_parser = CADParser(self.members)
 
         has_details = bool(resources2 or raw_resources or raw_roster or core_inc_type)
 

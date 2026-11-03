@@ -32,6 +32,29 @@ def _format_name_token(token: str) -> str:
     return t.title()
 
 
+def extract_name_and_badge(raw_name: str) -> tuple[str, Optional[str]]:
+    """
+    Extracts normalized personnel name and optional badge/radio number if present.
+    - 'Wellons, Charles | 1534' -> ('Wellons, Charles', '1534')
+    - 'Garber, James Steven, JR | 1539' -> ('Garber, James Steven, Jr.', '1539')
+    - 'Adams, John' -> ('Adams, John', None)
+    """
+    clean = " ".join(raw_name.strip().split())
+    if not clean:
+        return "", None
+
+    badge = None
+    if "|" in clean:
+        parts = clean.split("|", 1)
+        clean = parts[0].strip()
+        badge_cand = parts[1].strip()
+        if badge_cand:
+            badge = badge_cand
+
+    norm_name = normalize_personnel_name(clean)
+    return norm_name, badge
+
+
 def normalize_personnel_name(raw_name: str) -> str:
     """
     Standardize personnel names to 'Last, First' format with proper suffix handling.

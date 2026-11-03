@@ -94,3 +94,37 @@ def test_get_active_roster_names():
     roster = get_active_roster_names(members)
     assert roster == ["Active, Member A", "Active, Member B"]
 
+
+def test_auto_learn_member_badge():
+    from eso_reports.member_manager import auto_learn_member_badge
+    from eso_reports.models import extract_name_and_badge
+
+    norm_name, badge = extract_name_and_badge("Glass, Lucas | 1545")
+    assert norm_name == "Glass, Lucas"
+    assert badge == "1545"
+
+    members = [Member(name="Wellons, Charles", primary_id="1534", aliases=["1534"], active=True)]
+
+    # 1. Learn brand new member from payload
+    modified = auto_learn_member_badge(members, norm_name, badge)
+    assert modified is True
+    assert len(members) == 2
+
+    lucas = next(m for m in members if m.name == "Glass, Lucas")
+    assert lucas.primary_id == "1545"
+    assert "1545" in lucas.aliases
+    assert "15-45" in lucas.aliases
+    assert lucas.active is True
+
+    # 2. Re-learning same badge should not modify
+    assert auto_learn_member_badge(members, norm_name, badge) is False
+
+    # 3. Learning badge for existing member without primary_id
+    members.append(Member(name="New, Firefighter", primary_id="", aliases=[], active=True))
+    modified = auto_learn_member_badge(members, "New, Firefighter", "1598")
+    assert modified is True
+    ff = next(m for m in members if m.name == "New, Firefighter")
+    assert ff.primary_id == "1598"
+    assert "1598" in ff.aliases
+    assert "15-98" in ff.aliases
+

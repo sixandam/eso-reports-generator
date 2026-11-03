@@ -140,3 +140,53 @@ def get_active_roster_names(members: List[Member]) -> List[str]:
     """Returns sorted list of active member names for known_roster."""
     return sorted(list({m.name for m in members if m.active and m.name}))
 
+
+def auto_learn_member_badge(
+    members: List[Member],
+    name: str,
+    badge: str,
+) -> bool:
+    """
+    Auto-registers or updates a member's badge number and standard aliases (e.g. '1545', '15-45')
+    harvested from ESO RMS incident reports ('Name | Badge').
+    Returns True if the members list was modified.
+    """
+    if not name or not badge:
+        return False
+
+    norm_name = normalize_personnel_name(name)
+    clean_badge = badge.strip()
+    if not norm_name or not clean_badge:
+        return False
+
+    hyphenated = None
+    if len(clean_badge) == 4 and clean_badge.isdigit():
+        hyphenated = f"{clean_badge[:2]}-{clean_badge[2:]}"
+
+    for m in members:
+        if m.name == norm_name:
+            modified = False
+            if not m.primary_id:
+                m.primary_id = clean_badge
+                modified = True
+            if clean_badge not in m.aliases:
+                m.aliases.append(clean_badge)
+                modified = True
+            if hyphenated and hyphenated not in m.aliases:
+                m.aliases.append(hyphenated)
+                modified = True
+            return modified
+
+    aliases = [clean_badge]
+    if hyphenated and hyphenated not in aliases:
+        aliases.append(hyphenated)
+
+    new_member = Member(
+        name=norm_name,
+        primary_id=clean_badge,
+        aliases=aliases,
+        active=True,
+    )
+    members.append(new_member)
+    return True
+
