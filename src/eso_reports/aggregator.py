@@ -15,9 +15,11 @@ from .models import (
     Member,
     UnmappedCADMark,
     normalize_personnel_name,
+    format_display_name,
+    extract_name_and_badge,
 )
 from .member_manager import load_members
-from .cad_parser import CADParser
+from .cad_parser import CADParser, extract_unit_from_token
 
 
 def normalize_apparatus_name(raw_name: str) -> str:
@@ -230,6 +232,91 @@ def build_report_dataset(
     _log(f"Identified {len(sorted_roster)} responders across {total_incidents} active calls ({len(inactive_incidents)} inactive/drafts).")
     _log("Roster and attendance analysis complete.")
 
+    # 6. Build Unit-oriented Roster & Attendance Matrix for Sheet 1 ("Call Percentage")
+    _log("Compiling unit number roster (1510 - 1564) and unit-level attendance...")
+    # Base units: always include 1510 - 1564
+    ALL_DEFAULT_UNITS = [str(u) for u in range(1510, 1565)]
+
+    # Resolve members source for unit mapping: use members_db or load_members()
+    ref_members = members_db if members_db is not None else load_members()
+
+    unit_to_name: Dict[str, str] = {}
+    name_to_unit: Dict[str, str] = {}
+
+    if ref_members:
+        for m in ref_members:
+            disp_name = format_display_name(m.name)
+            norm_name = normalize_personnel_name(m.name)
+            u_cand = extract_unit_from_token(m.primary_id) or (m.primary_id.strip() if m.primary_id else None)
+            if u_cand:
+                unit_to_name[u_cand] = disp_name
+                name_to_unit[norm_name] = u_cand
+                name_to_unit[m.name] = u_cand
+                name_to_unit[disp_name] = u_cand
+                for alias in m.aliases:
+                    name_to_unit[alias.upper()] = u_cand
+
+    # Also harvest unit badges directly from incident responders
+    for inc in active_incidents:
+        for resp in inc.responders:
+            norm, badge = extract_name_and_badge(resp)
+            disp = format_display_name(norm)
+            if badge:
+                u = extract_unit_from_token(badge) or badge.strip()
+                if u:
+                    unit_to_name[u] = disp
+                    name_to_unit[norm] = u
+                    name_to_unit[disp] = u
+
+    # Combine into sorted unit roster: always includes 1510-1564, plus any extra primary unit numbers
+    unit_set = set(ALL_DEFAULT_UNITS)
+    for u in unit_to_name.keys():
+        if u and (1510 <= int(u) <= 1564 if u.isdigit() else False):
+            unit_set.add(u)
+
+    sorted_units = sorted(
+        list(unit_set),
+        key=lambda x: (int(x) if x.isdigit() else 9999, x)
+    )
+
+    # Ensure all units have a name entry (blank if unmapped)
+    for u in sorted_units:
+        if u not in unit_to_name:
+            unit_to_name[u] = ""
+
+    # Build unit attendance matrix: incident_number -> {unit_number: bool}
+    unit_attendance_matrix: Dict[str, Dict[str, bool]] = {}
+    for inc in active_incidents:
+        attended_units: Set[str] = set()
+
+        # Responders on report
+        for resp in inc.responders:
+            norm, badge = extract_name_and_badge(resp)
+            u = (extract_unit_from_token(badge) if badge else None) or name_to_unit.get(norm) or name_to_unit.get(format_display_name(norm))
+            if u:
+                attended_units.add(u)
+
+        # Responders from radio
+        for r in inc.radio_responders:
+            norm = normalize_personnel_name(r)
+            u = name_to_unit.get(norm) or name_to_unit.get(format_display_name(norm))
+            if u:
+                attended_units.add(u)
+
+        # Explicit unit numbers in CAD notes
+        for token in inc.radio_markups_found:
+            u = extract_unit_from_token(token)
+            if u:
+                attended_units.add(u)
+
+        for u in getattr(inc, "radio_units", []):
+            if u:
+                attended_units.add(u)
+
+        unit_attendance_matrix[inc.incident_number] = {
+            u: (u in attended_units) for u in sorted_units
+        }
+
     return ReportDataset(
         start_date=start_date,
         end_date=end_date,
@@ -246,4 +333,7 @@ def build_report_dataset(
         personnel_summaries=personnel_summaries,
         type_summaries=type_summaries,
         apparatus_summaries=apparatus_summaries,
+        unit_roster=sorted_units,
+        unit_to_name=unit_to_name,
+        unit_attendance_matrix=unit_attendance_matrix,
     )

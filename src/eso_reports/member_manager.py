@@ -21,19 +21,25 @@ DEFAULT_SEEDED_MEMBERS: List[Dict] = [
     {
         "name": "Wellons, Charles",
         "primary_id": "1534",
-        "aliases": ["CHF 15", "CF15", "CHIEF 15", "1501", "15-01", "1534", "15-34"],
+        "aliases": ["CHF 15", "CF15", "CHIEF 15", "1501", "15-01", "1534", "15-34", "34"],
+        "active": True,
+    },
+    {
+        "name": "Garber, James Steven, Jr.",
+        "primary_id": "1539",
+        "aliases": ["CHF 15", "CF15", "CHIEF 15", "1501", "15-01", "1539", "15-39", "39", "CAPT 15"],
         "active": True,
     },
     {
         "name": "Glass, Lucas",
         "primary_id": "1545",
-        "aliases": ["1545", "15-45"],
+        "aliases": ["1545", "15-45", "45"],
         "active": True,
     },
     {
         "name": "Glass, Ryne",
         "primary_id": "1530",
-        "aliases": ["1530", "15-30"],
+        "aliases": ["1530", "15-30", "30"],
         "active": True,
     },
 ]
@@ -159,9 +165,15 @@ def auto_learn_member_badge(
     if not norm_name or not clean_badge:
         return False
 
+    if len(clean_badge) == 2 and clean_badge.isdigit() and 10 <= int(clean_badge) <= 64:
+        clean_badge = f"15{clean_badge}"
+
     hyphenated = None
+    short_num = None
     if len(clean_badge) == 4 and clean_badge.isdigit():
         hyphenated = f"{clean_badge[:2]}-{clean_badge[2:]}"
+        if clean_badge.startswith("15"):
+            short_num = str(int(clean_badge[2:]))
 
     for m in members:
         if m.name == norm_name:
@@ -175,11 +187,16 @@ def auto_learn_member_badge(
             if hyphenated and hyphenated not in m.aliases:
                 m.aliases.append(hyphenated)
                 modified = True
+            if short_num and short_num not in m.aliases:
+                m.aliases.append(short_num)
+                modified = True
             return modified
 
     aliases = [clean_badge]
     if hyphenated and hyphenated not in aliases:
         aliases.append(hyphenated)
+    if short_num and short_num not in aliases:
+        aliases.append(short_num)
 
     new_member = Member(
         name=norm_name,

@@ -3,6 +3,7 @@ Data models and schemas for ESO Suite incident reports.
 """
 
 from __future__ import annotations
+import re
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,10 +33,35 @@ def _format_name_token(token: str) -> str:
     return t.title()
 
 
+def format_display_name(raw_name: str) -> str:
+    """
+    Formats personnel name into 'First Last' or 'First Last, Suffix' for clean report display.
+    - 'Wellons, Charles' -> 'Charles Wellons'
+    - 'Garber, James Steven, Jr.' -> 'James Steven Garber, Jr.'
+    - 'Smith, John, III' -> 'John Smith, III'
+    - 'Charles Wellons' -> 'Charles Wellons'
+    """
+    if not raw_name:
+        return ""
+    clean = " ".join(raw_name.strip().split())
+    if "|" in clean:
+        clean = clean.split("|")[0].strip()
+    if "," in clean:
+        parts = [p.strip() for p in clean.split(",") if p.strip()]
+        if len(parts) >= 2:
+            last = parts[0]
+            first = parts[1]
+            suffix = f", {parts[2]}" if len(parts) > 2 else ""
+            return f"{first} {last}{suffix}"
+    return clean
+
+
 def extract_name_and_badge(raw_name: str) -> tuple[str, Optional[str]]:
     """
     Extracts normalized personnel name and optional badge/radio number if present.
+    Supports:
     - 'Wellons, Charles | 1534' -> ('Wellons, Charles', '1534')
+    - '1534 | Wellons, Charles' -> ('Wellons, Charles', '1534')
     - 'Garber, James Steven, JR | 1539' -> ('Garber, James Steven, Jr.', '1539')
     - 'Adams, John' -> ('Adams, John', None)
     """
@@ -45,11 +71,42 @@ def extract_name_and_badge(raw_name: str) -> tuple[str, Optional[str]]:
 
     badge = None
     if "|" in clean:
-        parts = clean.split("|", 1)
-        clean = parts[0].strip()
-        badge_cand = parts[1].strip()
-        if badge_cand:
-            badge = badge_cand
+        p1, p2 = [p.strip() for p in clean.split("|", 1)]
+        if p1.isdigit() or (p1.startswith("15") and len(p1) == 4):
+            badge = p1
+            clean = p2
+        elif p2.isdigit() or (p2.startswith("15") and len(p2) == 4) or len(p2) <= 5:
+            badge = p2
+            clean = p1
+        else:
+            clean = p1
+            badge = p2
+    elif "(" in clean and ")" in clean:
+        match = re.search(r"\(([^)]+)\)", clean)
+        if match:
+            cand = match.group(1).strip()
+            if cand.isdigit() or re.match(r"^15\d{2}$", cand):
+                badge = cand
+                clean = clean.replace(match.group(0), "").strip()
+    elif "#" in clean:
+        parts = clean.split("#", 1)
+        cand = parts[1].strip()
+        if cand.isdigit():
+            badge = cand
+            clean = parts[0].strip()
+    elif " - " in clean:
+        p1, p2 = [p.strip() for p in clean.split(" - ", 1)]
+        if p1.isdigit() and len(p1) in (2, 4):
+            badge = p1
+            clean = p2
+        elif p2.isdigit() and len(p2) in (2, 4):
+            badge = p2
+            clean = p1
+
+    if badge:
+        # If badge is 2 digits e.g. "34", normalize to "1534" in Company 15 context
+        if len(badge) == 2 and badge.isdigit() and 10 <= int(badge) <= 64:
+            badge = f"15{badge}"
 
     norm_name = normalize_personnel_name(clean)
     return norm_name, badge
@@ -174,6 +231,7 @@ class Incident(BaseModel):
     cad_notes: Optional[str] = Field(default=None, description="Raw CAD dispatch text")
     radio_markups_found: List[str] = Field(default_factory=list, description="Extracted raw tokens (e.g. ['CHF 15', '1516'])")
     radio_responders: List[str] = Field(default_factory=list, description="Member names matched from radio marks")
+    radio_units: List[str] = Field(default_factory=list, description="Unit numbers extracted from CAD radio marks (e.g. ['1516'])")
     unmapped_radio_marks: List[UnmappedCADMark] = Field(default_factory=list, description="Unrecognized marks with incident context")
 
     def get_normalized_responders(self) -> List[str]:
@@ -259,4 +317,17 @@ class ReportDataset(BaseModel):
     apparatus_summaries: List[ApparatusSummary] = Field(
         default_factory=list,
         description="Apparatus response frequencies and percentages"
+    )
+    # Unit number-oriented roster & matrices for Sheet 1 ("Call Percentage")
+    unit_roster: List[str] = Field(
+        default_factory=list,
+        description="Ordered list of unit numbers (always includes 1510-1564, plus any others)"
+    )
+    unit_to_name: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Map of unit number (e.g. '1534') to display name (e.g. 'Charles Wellons')"
+    )
+    unit_attendance_matrix: Dict[str, Dict[str, bool]] = Field(
+        default_factory=dict,
+        description="Map of incident_number -> {unit_number: attended_bool}"
     )

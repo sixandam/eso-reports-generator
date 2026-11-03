@@ -804,16 +804,6 @@ class MainWindow(QMainWindow):
         row3.addStretch(1)
         controls_layout.addLayout(row3)
 
-        # Row 4: Centered secondary button to open Member Manager
-        row4 = QHBoxLayout()
-        row4.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.btn_manage_members = QPushButton("Manage Members")
-        self.btn_manage_members.setFixedHeight(36)
-        self.btn_manage_members.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_manage_members.clicked.connect(self._open_member_manager)
-        row4.addWidget(self.btn_manage_members)
-        controls_layout.addLayout(row4)
-
         main_layout.addWidget(controls_widget, 0)
 
         # Bottom spacer widget: used when log is hidden, keeps buttons centered
@@ -902,10 +892,6 @@ class MainWindow(QMainWindow):
         self.status_label.setText("")
         self.status_icon.clear()
         self._update_date_labels()
-
-    def _open_member_manager(self):
-        dialog = MemberManagerDialog(self)
-        dialog.exec()
 
     def _start_generation(self):
         if self.start_date > self.end_date:

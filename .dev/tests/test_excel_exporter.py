@@ -1,14 +1,14 @@
 """
-Tests for Excel export generation, plain text styling, Date column, and 2-column tables.
+Tests for Excel export generation, plain text styling, Call Percentage, and Other tables.
 """
 
 from pathlib import Path
 import openpyxl
 import pytest
 
-from eso_reports.models import Incident
+from eso_reports.models import Incident, Member
 from eso_reports.aggregator import build_report_dataset
-from eso_reports.excel_exporter import export_report_to_excel, _format_cell_date
+from eso_reports.excel_exporter import export_report_to_excel, _format_cell_date, format_call_header
 
 
 def test_format_cell_date():
@@ -20,27 +20,33 @@ def test_format_cell_date():
     assert _format_cell_date("") == ""
 
 
+def test_format_call_header():
+    assert format_call_header("CO15202600356") == "#356"
+    assert format_call_header("24-00101") == "#101"
+    assert format_call_header("12") == "#012"
+
+
 def test_excel_export_structure(tmp_path: Path):
     incidents = [
         Incident(
             incident_number="24-00101",
             incident_type="111 - Building fire",
             incident_date="10/17/2026 20:25",
-            responders=["Adams, J.", "Baker, M."],
+            responders=["Wellons, Charles | 1534", "Glass, Lucas | 1545"],
             apparatus=["Engine 15", "POV"],
         ),
         Incident(
             incident_number="24-00102",
             incident_type="321 - EMS call",
             incident_date="10/17/2026 02:29",
-            responders=["Adams, J.", "Clark, R."],
+            responders=["Wellons, Charles | 1534"],
             apparatus=["Engine 15"],
         ),
         Incident(
             incident_number="24-00103",
             incident_type="321 - EMS call",
             incident_date="10/15/2026 17:19",
-            responders=["Baker, M."],
+            responders=["Glass, Lucas | 1545"],
             apparatus=["Station Standby"],
         ),
     ]
@@ -53,73 +59,80 @@ def test_excel_export_structure(tmp_path: Path):
 
     wb = openpyxl.load_workbook(result_path)
 
-    # Verify sheet names
-    assert wb.sheetnames == ["Attendance Matrix", "Incident Types & Apparatus", "CAD Notes & Radio Audit"]
+    # 1. Verify sheet names: exactly 2 sheets ("Call Percentage" and "Other")
+    assert wb.sheetnames == ["Call Percentage", "Other"]
 
-    # 1. Verify Sheet 1: Attendance Matrix
-    ws1 = wb["Attendance Matrix"]
-    # Check headers with Date column
-    expected_headers = ["Incident Number", "Incident Type", "Date", "Adams, J.", "Baker, M.", "Clark, R."]
+    # 2. Verify Sheet 1: Call Percentage
+    ws1 = wb["Call Percentage"]
+    # Check headers: Unit #, Name, followed by #[last 3 digits] for each call
+    expected_headers = ["Unit #", "Name", "#101", "#102", "#103"]
     actual_headers = [cell.value for cell in ws1[1]]
     assert actual_headers == expected_headers
 
-    # Check freeze panes on D2 (freezes Number, Type, Date and Header row)
-    assert ws1.freeze_panes == "D2"
+    # Check freeze panes on C2 (freezes Unit # and Name columns, and top row)
+    assert ws1.freeze_panes == "C2"
 
-    # Verify plain text (no colored fill)
-    for row in ws1.iter_rows(min_row=1, max_row=5, min_col=1, max_col=6):
-        for cell in row:
-            assert cell.fill.fill_type is None or cell.fill.start_color.rgb == "00000000"
+    # Check print title columns for multi-page printing
+    assert "$A:$B" in str(ws1.print_title_cols)
 
-    # Check incident row 1 (Row 2): 24-00101 -> Date, Adams X, Baker X, Clark blank
-    assert ws1.cell(row=2, column=1).value == "24-00101"
-    assert ws1.cell(row=2, column=2).value == "111 - Building fire"
-    assert "10/17/2026" in str(ws1.cell(row=2, column=3).value)
-    assert ws1.cell(row=2, column=4).value == "X"
-    assert ws1.cell(row=2, column=5).value == "X"
-    assert ws1.cell(row=2, column=6).value is None or ws1.cell(row=2, column=6).value == ""
+    # Check font is Arial
+    assert ws1.cell(row=1, column=1).font.name == "Arial"
+    assert ws1.cell(row=2, column=1).font.name == "Arial"
 
-    # Check summary row (Row 5: 3 incidents + header = row 5)
-    assert ws1.cell(row=5, column=1).value == "Total Calls Made"
-    assert ws1.cell(row=5, column=2).value == "Total Incidents: 3"
-    assert ws1.cell(row=5, column=3).value in (None, "")
-    assert ws1.cell(row=5, column=4).value == "2/3 (66.7%)"
-    assert ws1.cell(row=5, column=5).value == "2/3 (66.7%)"
-    assert ws1.cell(row=5, column=6).value == "1/3 (33.3%)"
+    # Check all boxes outlined (cell border is set)
+    assert ws1.cell(row=1, column=1).border.left.style == "thin"
+    assert ws1.cell(row=2, column=1).border.left.style == "thin"
 
-    # 2. Verify Sheet 2: Incident Types & Apparatus (2 Columns)
-    ws2 = wb["Incident Types & Apparatus"]
-    
-    # Header block
-    assert ws2.cell(row=1, column=1).value == "INCIDENT TYPES BREAKDOWN"
-    expected_headers_ws2 = ["Incident Type", "Total Calls Made (%)"]
-    actual_headers_ws2 = [ws2.cell(row=2, column=1).value, ws2.cell(row=2, column=2).value]
-    assert actual_headers_ws2 == expected_headers_ws2
+    # Unit # column should be bolded
+    assert ws1.cell(row=2, column=1).font.bold is True
 
-    # Check freeze panes
-    assert ws2.freeze_panes == "A3"
+    # Check that unit numbers 1510 - 1564 are present
+    unit_col_vals = [str(ws1.cell(row=r, column=1).value) for r in range(2, ws1.max_row + 1)]
+    for u in range(1510, 1565):
+        assert str(u) in unit_col_vals
 
-    # Check Incident types rows (2 columns)
-    assert ws2.cell(row=3, column=1).value == "321 - EMS call"
-    assert ws2.cell(row=3, column=2).value == "2/3 (66.7%)"
+    # Check 1534 row has Charles Wellons and correct Xs
+    row_1534 = next(r for r in range(2, ws1.max_row + 1) if ws1.cell(row=r, column=1).value == "1534")
+    assert ws1.cell(row=row_1534, column=2).value == "Charles Wellons"
+    assert ws1.cell(row=row_1534, column=3).value == "X"  # Call 101
+    assert ws1.cell(row=row_1534, column=4).value == "X"  # Call 102
+    assert ws1.cell(row=row_1534, column=5).value in (None, "")  # Call 103
 
-    assert ws2.cell(row=4, column=1).value == "111 - Building fire"
-    assert ws2.cell(row=4, column=2).value == "1/3 (33.3%)"
+    # Check an unmapped unit number (e.g. 1522) has blank name
+    row_1522 = next(r for r in range(2, ws1.max_row + 1) if ws1.cell(row=r, column=1).value == "1522")
+    assert ws1.cell(row=row_1522, column=2).value in (None, "")
 
-    # Total row
-    assert ws2.cell(row=5, column=1).value == "Total Incidents"
-    assert ws2.cell(row=5, column=2).value == "3/3 (100.0%)"
+    # 3. Verify Sheet 2: Other
+    ws2 = wb["Other"]
 
-    # Check Apparatus Section exists (2 columns)
-    found_apparatus_section = False
-    for r in range(6, ws2.max_row + 1):
-        if ws2.cell(row=r, column=1).value == "APPARATUS / RESOURCE BREAKDOWN":
-            found_apparatus_section = True
-            header_row = r + 1
-            assert ws2.cell(row=header_row, column=1).value == "Apparatus / Resource"
-            assert ws2.cell(row=header_row, column=2).value == "Total Calls Made (%)"
-            break
-    assert found_apparatus_section
+    # Freezing should be removed
+    assert ws2.freeze_panes is None
+
+    # Table 1: Incident Types in Cols A-B starting Row 1 (No "INCIDENT TYPES BREAKDOWN" header)
+    assert ws2.cell(row=1, column=1).value == "Incident Type"
+    assert ws2.cell(row=1, column=2).value == "Total Calls Made (%)"
+    assert ws2.cell(row=1, column=1).font.name == "Arial"
+
+    # Table 2: Apparatus in Cols D-E starting Row 1 (No "APPARATUS / RESOURCE BREAKDOWN" header)
+    assert ws2.cell(row=1, column=4).value == "Apparatus"
+    assert ws2.cell(row=1, column=5).value == "Total Calls Made (%)"
+    assert ws2.cell(row=1, column=4).font.name == "Arial"
+
+    # Table 3: Other in Cols H-I starting Row 1 (No "OTHER / INACTIVE REPORTS" header)
+    assert ws2.cell(row=1, column=8).value == "Other"
+    assert ws2.cell(row=1, column=9).value == "Description"
+    assert ws2.cell(row=1, column=8).font.name == "Arial"
+
+    # Check outer border on top tables
+    assert ws2.cell(row=1, column=1).border.top.style == "medium"
+    assert ws2.cell(row=1, column=4).border.top.style == "medium"
+    assert ws2.cell(row=1, column=8).border.top.style == "medium"
+
+    # Check debugging tables exist below top tables
+    content_cells = [str(cell.value) for row in ws2.iter_rows(values_only=False) for cell in row if cell.value]
+    assert "INCIDENT CAD & RADIO BREAKDOWN" in content_cells
+    assert "UNMAPPED CALL SIGNS AUDIT LOG" in content_cells
+    assert "UNMAPPED CALL SIGNS FREQUENCY SUMMARY" in content_cells
 
 
 def test_excel_export_empty_dataset(tmp_path: Path):
@@ -130,10 +143,13 @@ def test_excel_export_empty_dataset(tmp_path: Path):
     assert result_path.exists()
 
     wb = openpyxl.load_workbook(result_path)
-    assert wb.sheetnames == ["Attendance Matrix", "Incident Types & Apparatus", "CAD Notes & Radio Audit"]
-    ws1 = wb["Attendance Matrix"]
-    assert ws1.cell(row=2, column=1).value == "Total Calls Made"
-    assert ws1.cell(row=2, column=2).value == "Total Incidents: 0"
+    assert wb.sheetnames == ["Call Percentage", "Other"]
+    ws1 = wb["Call Percentage"]
+    # Headers Unit #, Name
+    assert ws1.cell(row=1, column=1).value == "Unit #"
+    assert ws1.cell(row=1, column=2).value == "Name"
+    # Unit 1510 still present
+    assert ws1.cell(row=2, column=1).value == "1510"
 
 
 def test_excel_export_with_inactive_section(tmp_path: Path):
@@ -158,23 +174,60 @@ def test_excel_export_with_inactive_section(tmp_path: Path):
     export_report_to_excel(dataset, out_file)
 
     wb = openpyxl.load_workbook(out_file)
-    ws1 = wb["Attendance Matrix"]
-    # Only active incident on Sheet 1
-    assert ws1.cell(row=2, column=1).value == "CO15202600407"
-    assert ws1.cell(row=3, column=1).value == "Total Calls Made"
+    ws2 = wb["Other"]
 
-    ws2 = wb["Incident Types & Apparatus"]
-    # Inactive section exists on Sheet 2
-    found_inactive_section = False
-    for r in range(1, ws2.max_row + 1):
-        if ws2.cell(row=r, column=1).value == "OTHER / INACTIVE REPORTS":
-            found_inactive_section = True
-            header_row = r + 1
-            assert ws2.cell(row=header_row, column=1).value == "Incident Number (Status)"
-            data_row = r + 2
-            assert "260905-134412-LDHVFD" in str(ws2.cell(row=data_row, column=1).value)
+    # Inactive report is listed in Table 3 (Cols H & I)
+    found_inactive = False
+    for r in range(2, ws2.max_row + 1):
+        val = str(ws2.cell(row=r, column=8).value or "")
+        if "260905-134412-LDHVFD" in val:
+            found_inactive = True
+            desc_val = str(ws2.cell(row=r, column=9).value or "")
+            assert "09/05/2026" in desc_val
             break
-    assert found_inactive_section
+    assert found_inactive
+
+
+def test_excel_export_cad_marks_and_questionable_tokens(tmp_path: Path):
+    members = [
+        Member(name="Garber, James Steven, Jr.", primary_id="1539", aliases=["CHF 15", "1539"], active=True),
+    ]
+
+    incidents = [
+        Incident(
+            incident_number="CO15202600356",
+            incident_type="MVC / VEHICLE ACCIDENT",
+            incident_date="10/11/2026 18:25",
+            responders=[],
+            cad_notes="[18:25:00] CHG15 EN ROUTE POV\n[18:26:00] 1516 ON SCENE",
+        ),
+    ]
+
+    dataset = build_report_dataset(incidents, members_db=members)
+    out_file = tmp_path / "test_cad_questionable.xlsx"
+    export_report_to_excel(dataset, out_file)
+
+    wb = openpyxl.load_workbook(out_file)
+
+    # Sheet 1: Unit 1516 tracked from CAD notes without mapped name has 'X'
+    ws1 = wb["Call Percentage"]
+    row_1516 = next(r for r in range(2, ws1.max_row + 1) if ws1.cell(row=r, column=1).value == "1516")
+    assert ws1.cell(row=row_1516, column=2).value in (None, "")
+    assert ws1.cell(row=row_1516, column=3).value == "X"
+
+    # Sheet 2: Questionable mark CHG15 listed in Table 3 (Other column)
+    ws2 = wb["Other"]
+    found_chg15 = False
+    for r in range(2, ws2.max_row + 1):
+        if str(ws2.cell(row=r, column=8).value) in ("CHG15", "CHG 15"):
+            found_chg15 = True
+            desc = str(ws2.cell(row=r, column=9).value)
+            # Description must say "from [call number] [date] [time] [incident type]"
+            assert "from CO15202600356" in desc
+            assert "10/11/2026 18:25" in desc
+            assert "MVC / VEHICLE ACCIDENT" in desc
+            break
+    assert found_chg15
 
 
 def test_excel_export_permission_error_fallback(tmp_path: Path, monkeypatch):
@@ -189,7 +242,6 @@ def test_excel_export_permission_error_fallback(tmp_path: Path, monkeypatch):
     dataset = build_report_dataset(incidents)
     out_file = tmp_path / "locked_report.xlsx"
 
-    # Simulate PermissionError on first save attempt, succeed on fallback attempt
     orig_save = openpyxl.Workbook.save
     first_attempt = True
 
@@ -206,78 +258,3 @@ def test_excel_export_permission_error_fallback(tmp_path: Path, monkeypatch):
     assert saved_path != out_file
     assert saved_path.exists()
     assert "locked_report_" in saved_path.name
-
-
-def test_excel_export_multisource_and_sheet3(tmp_path: Path):
-    from eso_reports.models import Member
-    members = [
-        Member(name="Adams, John", primary_id="1501", aliases=["1501", "CHF 15"], active=True),
-        Member(name="Baker, Mary", primary_id="1502", aliases=["1502"], active=True),
-        Member(name="Zero, Responder", primary_id="1599", aliases=["1599"], active=True),
-    ]
-
-    incidents = [
-        Incident(
-            incident_number="CO15-01",
-            incident_type="111 - Building fire",
-            incident_date="10/17/2026 20:25",
-            responders=["Adams, John", "Baker, Mary"],  # Adams on report
-            cad_notes="[20:26:00] CHF 15 EN ROUTE POV\n[20:27:00] 1588 UNKNOWN POV",  # Adams also on radio; 1588 unmapped
-        ),
-        Incident(
-            incident_number="CO15-02",
-            incident_type="321 - EMS call",
-            incident_date="10/18/2026 08:30",
-            responders=["Baker, Mary"],  # Baker on report only
-            cad_notes="[08:31:00] 1501 MARKED UP",  # Adams on radio only
-        ),
-    ]
-
-    dataset = build_report_dataset(incidents, members_db=members)
-    out_file = tmp_path / "ESO Report.xlsx"
-    export_report_to_excel(dataset, out_file)
-
-    wb = openpyxl.load_workbook(out_file)
-    assert "CAD Notes & Radio Audit" in wb.sheetnames
-
-    # Sheet 1: Master Attendance Matrix
-    ws1 = wb["Attendance Matrix"]
-    # Check that Zero, Responder is included in roster headers
-    headers = [cell.value for cell in ws1[1]]
-    assert "Zero, Responder" in headers
-    assert "Adams, John" in headers
-    assert "Baker, Mary" in headers
-
-    adams_col = headers.index("Adams, John") + 1
-    baker_col = headers.index("Baker, Mary") + 1
-    zero_col = headers.index("Zero, Responder") + 1
-
-    # Row 2 (CO15-01): Adams on report AND radio -> XR; Baker on report -> X; Zero -> ""
-    assert ws1.cell(row=2, column=adams_col).value == "XR"
-    assert ws1.cell(row=2, column=baker_col).value == "X"
-    assert ws1.cell(row=2, column=zero_col).value in (None, "")
-
-    # Row 3 (CO15-02): Adams on radio only -> R; Baker on report only -> X
-    assert ws1.cell(row=3, column=adams_col).value == "R"
-    assert ws1.cell(row=3, column=baker_col).value == "X"
-    assert ws1.cell(row=3, column=zero_col).value in (None, "")
-
-    # Summary row for Zero, Responder should show 0/2 (0.0%)
-    summary_row = 4
-    assert ws1.cell(row=summary_row, column=zero_col).value == "0/2 (0.0%)"
-
-    # Sheet 3: CAD Notes & Radio Audit
-    ws3 = wb["CAD Notes & Radio Audit"]
-    # Check Section 1 header
-    assert ws3.cell(row=1, column=1).value == "INCIDENT CAD & RADIO BREAKDOWN"
-    # Check unmapped call sign 1588 appears in Section 2
-    found_1588 = False
-    for r in range(1, ws3.max_row + 1):
-        if ws3.cell(row=r, column=1).value == "1588":
-            found_1588 = True
-            assert ws3.cell(row=r, column=2).value == "CO15-01"
-            break
-    assert found_1588
-
-
-

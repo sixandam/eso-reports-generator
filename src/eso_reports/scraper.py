@@ -24,8 +24,8 @@ from rich.console import Console
 
 from .config import ESO_SEARCH_URL
 from .models import Incident, normalize_personnel_name, Member, extract_name_and_badge
-from .member_manager import load_members, auto_learn_member_badge
-from .cad_parser import CADParser
+from .member_manager import load_members, save_members, auto_learn_member_badge
+from .cad_parser import CADParser, extract_unit_from_token
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -303,6 +303,10 @@ class ESOScraper:
                             if norm and badge and hasattr(self, "members") and self.members is not None:
                                 if auto_learn_member_badge(self.members, norm, badge):
                                     self.cad_parser = CADParser(self.members)
+                                    try:
+                                        save_members(self.members)
+                                    except Exception:
+                                        pass
 
         # Check personnelNotOnUnit
         not_on_unit = resources2.get("personnelNotOnUnit") or []
@@ -317,6 +321,10 @@ class ESOScraper:
                     if norm and badge and hasattr(self, "members") and self.members is not None:
                         if auto_learn_member_badge(self.members, norm, badge):
                             self.cad_parser = CADParser(self.members)
+                            try:
+                                save_members(self.members)
+                            except Exception:
+                                pass
 
         # Fallback check for raw apparatus or personnel at top level
         raw_resources = item.get("resources") or item.get("apparatus")
@@ -337,6 +345,10 @@ class ESOScraper:
                     if norm and badge and hasattr(self, "members") and self.members is not None:
                         if auto_learn_member_badge(self.members, norm, badge):
                             self.cad_parser = CADParser(self.members)
+                            try:
+                                save_members(self.members)
+                            except Exception:
+                                pass
 
         has_details = bool(resources2 or raw_resources or raw_roster or core_inc_type)
 
@@ -344,6 +356,7 @@ class ESOScraper:
         cad_notes = extract_cad_notes_from_payload(item)
         radio_markups: List[str] = []
         radio_responders: List[str] = []
+        radio_units: List[str] = []
         unmapped_marks: List[Any] = []
         if cad_notes:
             radio_markups, radio_responders, unmapped_marks = self.cad_parser.parse_cad_text(
@@ -351,6 +364,10 @@ class ESOScraper:
                 incident_number=inc_num or "",
                 incident_date=core_date,
             )
+            for t in radio_markups:
+                u = extract_unit_from_token(t)
+                if u and u not in radio_units:
+                    radio_units.append(u)
 
         with self._lock:
             # Fast O(1) matching: check incident_number index or secondary record_id index
@@ -403,6 +420,7 @@ class ESOScraper:
                         target_incident.cad_notes = cad_notes
                     target_incident.radio_markups_found = list(dict.fromkeys(target_incident.radio_markups_found + radio_markups))
                     target_incident.radio_responders = list(dict.fromkeys(target_incident.radio_responders + radio_responders))
+                    target_incident.radio_units = list(dict.fromkeys(target_incident.radio_units + radio_units))
                     existing_unmapped = {u.token for u in target_incident.unmapped_radio_marks}
                     for u in unmapped_marks:
                         if u.token not in existing_unmapped:
@@ -425,6 +443,7 @@ class ESOScraper:
                     cad_notes=cad_notes,
                     radio_markups_found=radio_markups,
                     radio_responders=radio_responders,
+                    radio_units=radio_units,
                     unmapped_radio_marks=unmapped_marks,
                 )
                 self.intercepted_incidents[inc_num] = new_inc

@@ -108,6 +108,23 @@ def normalize_command_token(token: str) -> str:
     return clean_upper
 
 
+def extract_unit_from_token(token: str) -> Optional[str]:
+    """
+    Extracts standard 4-digit unit number from a token (e.g. 1510-1564, 15-34, #1534, 34).
+    Returns normalized 4-digit string e.g. '1534' or None.
+    """
+    if not token:
+        return None
+    clean = normalize_numeric_token(token).replace("-", "").replace(" ", "").strip()
+    if clean.isdigit():
+        val = int(clean)
+        if len(clean) == 4 and 1500 <= val <= 1599:
+            return clean
+        elif len(clean) in (1, 2) and 10 <= val <= 64:
+            return f"15{val:02d}"
+    return None
+
+
 class CADParser:
     """
     Parser for CAD narrative text to detect radio markups and match against member aliases.
@@ -181,17 +198,18 @@ class CADParser:
         if no_hyphen in self.normalized_alias_map:
             return self.normalized_alias_map[no_hyphen]
 
-        # Tier 3: Fuzzy match (restricted strictly to command titles followed by same number)
-        # e.g. "CHEIF 15" -> "CHIEF 15"
+        # Tier 3: Fuzzy match (restricted strictly to command titles of len >= 4 followed by same number)
+        # e.g. "CHEIF 15" -> "CHIEF 15" (does NOT match 3-letter typos like "CHG 15" which are flagged as questionable)
         cmd_match = re.match(r"^([A-Z]+)\s*(\d+)$", norm)
         if cmd_match:
             cmd_part, num_part = cmd_match.group(1), cmd_match.group(2)
-            for target_alias, target_member in self.exact_alias_map.items():
-                target_cmd_match = re.match(r"^([A-Z]+)\s*(\d+)$", target_alias)
-                if target_cmd_match:
-                    t_cmd, t_num = target_cmd_match.group(1), target_cmd_match.group(2)
-                    if num_part == t_num and levenshtein_distance(cmd_part, t_cmd) <= 1:
-                        return target_member
+            if len(cmd_part) >= 4:
+                for target_alias, target_member in self.exact_alias_map.items():
+                    target_cmd_match = re.match(r"^([A-Z]+)\s*(\d+)$", target_alias)
+                    if target_cmd_match:
+                        t_cmd, t_num = target_cmd_match.group(1), target_cmd_match.group(2)
+                        if len(t_cmd) >= 4 and num_part == t_num and levenshtein_distance(cmd_part, t_cmd) <= 1:
+                            return target_member
 
         return None
 
@@ -207,9 +225,9 @@ class CADParser:
         lines = text.splitlines()
 
         # Regex patterns for CAD markups:
-        # 1. Officer patterns: CHF 15, CF15, CHIEF 15, C-15, CAPT 15, LT 15, etc.
+        # 1. Officer / call sign patterns: CHF 15, CHG15, CF15, CHIEF 15, C-15, CAPT 15, LT 15, etc.
         pattern_officer = re.compile(
-            r"\b(?:CHIEF|CHEIF|CHFE|CEF|CHF|CF|CAPT|LT|CMD|COMMAND|C)\s*[-#]?\s*(?:15|150[1-9]|15[0-9]{2})\b",
+            r"\b[A-Z]{2,6}\s*[-#]?\s*(?:15|150[1-9]|15[0-9]{2})\b",
             re.IGNORECASE,
         )
 
