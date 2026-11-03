@@ -31,7 +31,7 @@ fi
 
 echo "[2/4] Installing dependencies..."
 ./.venv/bin/python -m pip install --upgrade pip
-./.venv/bin/python -m pip install -e ./.dev
+./.venv/bin/python -m pip install -e .
 ./.venv/bin/playwright install chromium || true
 
 echo "[3/4] Installing application icon..."
