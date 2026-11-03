@@ -17,7 +17,7 @@ def test_gui_window_initialization(qapp, tmp_path):
     out_file = tmp_path / "test_gui_output.xlsx"
     window = MainWindow(default_output=out_file)
 
-    assert window.windowTitle() == "ESO Report Generator"
+    assert window.windowTitle() == "ESO Reports Generator"
     assert window.btn_start is not None
     assert window.btn_end is not None
     assert "Start Date:" in window.btn_start.text()
@@ -300,6 +300,60 @@ def test_scraper_worker_logging_pipeline(tmp_path, monkeypatch):
     assert any("Done." in m for m in emitted_logs)
     assert len(finished_results) == 1
     assert finished_results[0][0] is True
+
+
+def test_gui_manage_members_dialog(qapp, tmp_path, monkeypatch):
+    from eso_reports.gui import MemberManagerDialog, MemberEditDialog
+    from eso_reports.models import Member
+    import eso_reports.gui as gui_module
+
+    fake_members_file = tmp_path / "members.json"
+    monkeypatch.setattr(gui_module, "load_members", lambda: [
+        Member(name="Wellons, Charles", primary_id="1534", aliases=["CHF 15", "1534"], active=True),
+        Member(name="Glass, Lucas", primary_id="1545", aliases=["1545"], active=False),
+    ])
+
+    saved_members_capture = []
+    monkeypatch.setattr(gui_module, "save_members", lambda m: saved_members_capture.extend(m))
+
+    dialog = MemberManagerDialog()
+    assert dialog.table.rowCount() == 2
+    assert dialog.table.item(0, 0).text() == "Wellons, Charles"
+    assert dialog.table.item(0, 1).text() == "1534"
+    assert "CHF 15" in dialog.table.item(0, 2).text()
+    assert dialog.table.item(0, 3).text() == "Active"
+    assert dialog.table.item(1, 3).text() == "Inactive"
+
+    # Test MemberEditDialog validation
+    edit_dlg = MemberEditDialog()
+    edit_dlg.edit_name.setText("")
+    # Empty name should not save
+    monkeypatch.setattr(gui_module.QMessageBox, "warning", lambda *args: None)
+    edit_dlg._on_save()
+    assert edit_dlg.result_member is None
+
+    edit_dlg.edit_name.setText("Garber, James | 1539")
+    edit_dlg.edit_id.setText("1539")
+    edit_dlg.edit_aliases.setText("CAPT 15, 15-39")
+    edit_dlg.chk_active.setChecked(True)
+    edit_dlg._on_save()
+
+    assert edit_dlg.result_member is not None
+    assert edit_dlg.result_member.name == "Garber, James"
+    assert edit_dlg.result_member.primary_id == "1539"
+    assert "1539" in edit_dlg.result_member.aliases
+    assert "CAPT 15" in edit_dlg.result_member.aliases
+
+    # Add member to manager dialog
+    dialog.members.append(edit_dlg.result_member)
+    dialog._populate_table()
+    assert dialog.table.rowCount() == 3
+
+    # Save and close
+    dialog._save_and_close()
+    assert len(saved_members_capture) == 3
+    assert any(m.name == "Garber, James" for m in saved_members_capture)
+
 
 
 

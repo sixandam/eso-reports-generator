@@ -1,8 +1,9 @@
 """
 Excel report generation module using openpyxl.
-Produces:
-- Sheet 1: Attendance Matrix (plain text with Date column, freeze panes on D2)
+Produces standardized ESO Report.xlsx with three worksheets:
+- Sheet 1: Master Attendance Matrix (multi-source indicators: X, R, XR; Date column; freeze panes on D2)
 - Sheet 2: Incident Types & Apparatus (2-column tables: Name and 'n/n (n%)')
+- Sheet 3: CAD Notes & Radio Audit (Incident breakdown, unmapped call signs audit, frequency summary)
 """
 
 from __future__ import annotations
@@ -125,10 +126,23 @@ def export_report_to_excel(
         clean_date = _format_cell_date(inc.incident_date or "")
         row_vals = [inc.incident_number, inc.incident_type, clean_date]
         matrix_row = dataset.attendance_matrix.get(inc.incident_number, {})
+        rep_row = dataset.report_attendance_matrix.get(inc.incident_number, {})
+        rad_row = dataset.radio_attendance_matrix.get(inc.incident_number, {})
 
         for member in dataset.roster:
-            responded = matrix_row.get(member, False)
-            row_vals.append("X" if responded else "")
+            in_rep = rep_row.get(member, False)
+            in_rad = rad_row.get(member, False)
+            if in_rep and in_rad:
+                indicator = "XR"
+            elif in_rep:
+                indicator = "X"
+            elif in_rad:
+                indicator = "R"
+            elif matrix_row.get(member, False):
+                indicator = "X"
+            else:
+                indicator = ""
+            row_vals.append(indicator)
 
         ws1.append(row_vals)
         ws1.row_dimensions[current_row].height = 20
@@ -297,6 +311,149 @@ def export_report_to_excel(
 
     ws2.freeze_panes = "A3"
     _auto_fit_columns(ws2, min_width=18, max_width=60)
+
+    # =========================================================================
+    # --- Sheet 3: CAD Notes & Radio Audit ---
+    # =========================================================================
+    _log("Writing Sheet 3: CAD Notes & Radio Audit...")
+    ws3 = wb.create_sheet(title="CAD Notes & Radio Audit")
+    ws3.views.sheetView[0].showGridLines = True
+
+    # --- Section 1: Incident CAD & Radio Breakdown ---
+    ws3.append(["INCIDENT CAD & RADIO BREAKDOWN", ""])
+    ws3.cell(row=1, column=1).font = BOLD_FONT
+
+    headers_cad = [
+        "Incident Number",
+        "Date",
+        "Personnel on Report",
+        "Radio Marks Found",
+        "Mapped Members",
+        "CAD Notes Snippet",
+    ]
+    ws3.append(headers_cad)
+    for col_idx in range(1, len(headers_cad) + 1):
+        cell = ws3.cell(row=2, column=col_idx)
+        cell.font = BOLD_FONT
+        cell.alignment = ALIGN_LEFT
+        cell.border = THIN_BORDER
+    ws3.row_dimensions[2].height = 22
+
+    current_row_ws3 = 3
+    for inc in dataset.incidents:
+        clean_date = _format_cell_date(inc.incident_date or "")
+        rep_str = ", ".join(inc.get_normalized_responders()) if inc.responders else "None"
+        marks_str = ", ".join(inc.radio_markups_found) if inc.radio_markups_found else "None"
+        mapped_str = ", ".join(inc.radio_responders) if inc.radio_responders else "None"
+        raw_cad = inc.cad_notes or "No CAD notes recorded"
+        first_snippet = raw_cad.strip().replace("\r\n", " ").replace("\n", " ")
+        if len(first_snippet) > 150:
+            first_snippet = first_snippet[:147] + "..."
+
+        row_vals = [inc.incident_number, clean_date, rep_str, marks_str, mapped_str, first_snippet]
+        ws3.append(row_vals)
+        ws3.row_dimensions[current_row_ws3].height = 20
+
+        for col_idx in range(1, len(row_vals) + 1):
+            cell = ws3.cell(row=current_row_ws3, column=col_idx)
+            cell.border = THIN_BORDER
+            cell.font = REGULAR_FONT
+            cell.alignment = ALIGN_CENTER if col_idx == 1 else ALIGN_LEFT
+        current_row_ws3 += 1
+
+    # Spacer row
+    ws3.append([])
+    current_row_ws3 += 1
+
+    # --- Section 2: Unmapped Call Signs Audit Table ---
+    ws3.append(["UNMAPPED CALL SIGNS AUDIT LOG", ""])
+    ws3.cell(row=current_row_ws3, column=1).font = BOLD_FONT
+    current_row_ws3 += 1
+
+    headers_unmapped = [
+        "Call Sign / Token",
+        "Incident Number",
+        "Date",
+        "CAD Remark Snippet",
+        "Reason / Status",
+    ]
+    ws3.append(headers_unmapped)
+    for col_idx in range(1, len(headers_unmapped) + 1):
+        cell = ws3.cell(row=current_row_ws3, column=col_idx)
+        cell.font = BOLD_FONT
+        cell.alignment = ALIGN_LEFT
+        cell.border = THIN_BORDER
+    ws3.row_dimensions[current_row_ws3].height = 22
+    current_row_ws3 += 1
+
+    if dataset.all_unmapped_cad_marks:
+        for mark in dataset.all_unmapped_cad_marks:
+            clean_date = _format_cell_date(mark.incident_date or "")
+            row_vals = [mark.token, mark.incident_number, clean_date, mark.snippet, mark.reason]
+            ws3.append(row_vals)
+            ws3.row_dimensions[current_row_ws3].height = 20
+            for col_idx in range(1, len(row_vals) + 1):
+                cell = ws3.cell(row=current_row_ws3, column=col_idx)
+                cell.border = THIN_BORDER
+                cell.font = REGULAR_FONT
+                cell.alignment = ALIGN_CENTER if col_idx <= 2 else ALIGN_LEFT
+            current_row_ws3 += 1
+    else:
+        row_vals = ["None detected", "-", "-", "All CAD radio marks mapped to active department members", "Verified"]
+        ws3.append(row_vals)
+        ws3.row_dimensions[current_row_ws3].height = 20
+        for col_idx in range(1, len(row_vals) + 1):
+            cell = ws3.cell(row=current_row_ws3, column=col_idx)
+            cell.border = THIN_BORDER
+            cell.font = REGULAR_FONT
+            cell.alignment = ALIGN_LEFT
+        current_row_ws3 += 1
+
+    # Spacer row
+    ws3.append([])
+    current_row_ws3 += 1
+
+    # --- Section 3: Unmapped Call Signs Frequency Summary ---
+    ws3.append(["UNMAPPED CALL SIGNS FREQUENCY SUMMARY", ""])
+    ws3.cell(row=current_row_ws3, column=1).font = BOLD_FONT
+    current_row_ws3 += 1
+
+    headers_freq = ["Call Sign", "Total Occurrences", "Suggested Action"]
+    ws3.append(headers_freq)
+    for col_idx in range(1, len(headers_freq) + 1):
+        cell = ws3.cell(row=current_row_ws3, column=col_idx)
+        cell.font = BOLD_FONT
+        cell.alignment = ALIGN_RIGHT if col_idx == 2 else ALIGN_LEFT
+        cell.border = THIN_BORDER
+    ws3.row_dimensions[current_row_ws3].height = 22
+    current_row_ws3 += 1
+
+    if dataset.unmapped_cad_frequency:
+        sorted_freq = sorted(dataset.unmapped_cad_frequency.items(), key=lambda x: (-x[1], x[0]))
+        for token, count in sorted_freq:
+            action = "Verify if new member; add to Member Manager"
+            row_vals = [token, count, action]
+            ws3.append(row_vals)
+            ws3.row_dimensions[current_row_ws3].height = 20
+            for col_idx in range(1, len(row_vals) + 1):
+                cell = ws3.cell(row=current_row_ws3, column=col_idx)
+                cell.border = THIN_BORDER
+                cell.font = REGULAR_FONT
+                cell.alignment = ALIGN_RIGHT if col_idx == 2 else ALIGN_LEFT
+            current_row_ws3 += 1
+    else:
+        row_vals = ["None detected", 0, "No action required"]
+        ws3.append(row_vals)
+        ws3.row_dimensions[current_row_ws3].height = 20
+        for col_idx in range(1, len(row_vals) + 1):
+            cell = ws3.cell(row=current_row_ws3, column=col_idx)
+            cell.border = THIN_BORDER
+            cell.font = REGULAR_FONT
+            cell.alignment = ALIGN_RIGHT if col_idx == 2 else ALIGN_LEFT
+        current_row_ws3 += 1
+
+    ws3.freeze_panes = "A3"
+    _auto_fit_columns(ws3, min_width=14, max_width=60)
 
     # Save to disk
     _log(f"Saving Excel workbook to {out_file}...")

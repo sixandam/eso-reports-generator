@@ -35,6 +35,7 @@ else:
 SESSION_FILE = APP_CONFIG_DIR / "session.json"
 XDG_SESSION_FILE = SESSION_FILE
 LEGACY_SESSION_FILE = Path.home() / ".session_state.json"
+MEMBERS_FILE = APP_CONFIG_DIR / "members.json"
 
 
 def get_default_session_file() -> Path:
@@ -129,7 +130,7 @@ def get_default_desktop_path() -> Path:
 
 
 # Default output spreadsheet path
-DEFAULT_OUTPUT_PATH = get_default_desktop_path() / "fire_incidents_report.xlsx"
+DEFAULT_OUTPUT_PATH = get_default_desktop_path() / "ESO Report.xlsx"
 
 # -----------------------------------------------------------------------------
 # Asset & Resource Resolution (Development & PyInstaller Frozen)

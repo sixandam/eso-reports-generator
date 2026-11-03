@@ -108,6 +108,27 @@ def normalize_personnel_name(raw_name: str) -> str:
         return f"{last}, {first}{suffix}"
 
 
+class Member(BaseModel):
+    """Represents a department member with assigned badge/radio ID and dispatch aliases."""
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(description="Normalized personnel name: Last, First")
+    primary_id: str = Field(description="Primary radio/badge number, e.g. '1516'")
+    aliases: List[str] = Field(default_factory=list, description="Aliases e.g. ['CHF 15', 'CF15', '15-16']")
+    active: bool = Field(default=True, description="Whether member is active on roster")
+
+
+class UnmappedCADMark(BaseModel):
+    """Represents an unrecognized radio call sign or notation found in CAD notes."""
+    model_config = ConfigDict(extra="ignore")
+
+    token: str = Field(description="Raw call sign or radio number extracted")
+    incident_number: str = Field(description="Incident where the mark appeared")
+    incident_date: Optional[str] = Field(default=None, description="Date of the call")
+    snippet: str = Field(description="CAD remark line containing the mark")
+    reason: str = Field(default="Not found in Member Manager", description="Reason for unmapped status")
+
+
 class Incident(BaseModel):
     """Represents a single fire/EMS incident record."""
     model_config = ConfigDict(extra="ignore")
@@ -125,6 +146,12 @@ class Incident(BaseModel):
     )
     details_fetched: bool = Field(default=False, description="Whether full incident record details have been harvested via API")
     raw_data: Optional[Dict[str, Any]] = Field(default=None, description="Optional raw backend payload")
+
+    # CAD & Radio fields:
+    cad_notes: Optional[str] = Field(default=None, description="Raw CAD dispatch text")
+    radio_markups_found: List[str] = Field(default_factory=list, description="Extracted raw tokens (e.g. ['CHF 15', '1516'])")
+    radio_responders: List[str] = Field(default_factory=list, description="Member names matched from radio marks")
+    unmapped_radio_marks: List[UnmappedCADMark] = Field(default_factory=list, description="Unrecognized marks with incident context")
 
     def get_normalized_responders(self) -> List[str]:
         """Return unique, normalized list of responder names."""
@@ -182,6 +209,27 @@ class ReportDataset(BaseModel):
     )
     attendance_matrix: Dict[str, Dict[str, bool]] = Field(
         description="Map of incident_number -> {person_name: responded_bool}"
+    )
+    # Multi-source matrices:
+    report_attendance_matrix: Dict[str, Dict[str, bool]] = Field(
+        default_factory=dict,
+        description="Map of incident_number -> {person_name: responded_on_report}"
+    )
+    radio_attendance_matrix: Dict[str, Dict[str, bool]] = Field(
+        default_factory=dict,
+        description="Map of incident_number -> {person_name: responded_on_radio}"
+    )
+    combined_attendance_matrix: Dict[str, Dict[str, bool]] = Field(
+        default_factory=dict,
+        description="Map of incident_number -> {person_name: responded_combined}"
+    )
+    all_unmapped_cad_marks: List[UnmappedCADMark] = Field(
+        default_factory=list,
+        description="Comprehensive audit list of every unmapped CAD mark across all incidents"
+    )
+    unmapped_cad_frequency: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Frequency count of unrecognized CAD call signs across all calls"
     )
     personnel_summaries: Dict[str, AttendanceSummary]
     type_summaries: List[IncidentTypeSummary]

@@ -12,8 +12,12 @@ from .models import (
     IncidentTypeSummary,
     ApparatusSummary,
     ReportDataset,
+    Member,
+    UnmappedCADMark,
     normalize_personnel_name,
 )
+from .member_manager import load_members
+from .cad_parser import CADParser
 
 
 def normalize_apparatus_name(raw_name: str) -> str:
@@ -38,6 +42,7 @@ def normalize_apparatus_name(raw_name: str) -> str:
 def build_report_dataset(
     incidents: List[Incident],
     known_roster: Optional[List[str]] = None,
+    members_db: Optional[List[Member]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     log_callback: Optional[Callable[[str], None]] = None,
@@ -46,11 +51,11 @@ def build_report_dataset(
     Transforms a list of incidents into structured report data.
 
     Calculates:
-    - Roster list sorted alphabetically.
-    - Attendance matrix indicating which personnel responded to each incident ('X' / '').
-    - Attendance metrics per member: calls_made, total_incidents, percentage, formatted_ratio ("n/N (n%)").
-    - Incident type distribution: count, percentage, formatted_summary ("<Type>: n/N (n%)").
-    - Apparatus distribution: count, percentage, formatted_summary ("<Apparatus>: n/N (n%)").
+    - Roster list sorted alphabetically, including active zero-call members.
+    - Attendance matrices: report-only, radio-only (CAD), and combined.
+    - Multi-source cell indicators and attendance metrics per member.
+    - Incident type distribution and apparatus distribution.
+    - Comprehensive CAD and radio audit logs and frequency counters.
     """
     def _log(msg: str):
         if log_callback:
@@ -61,8 +66,16 @@ def build_report_dataset(
     active_incidents = [inc for inc in incidents if (inc.status or "ACTIVE").upper() != "INACTIVE"]
     inactive_incidents = [inc for inc in incidents if (inc.status or "ACTIVE").upper() == "INACTIVE"]
 
-    # 1. Collect and normalize all personnel in the roster
+    # 1. Resolve department members and active roster
+    effective_members = members_db
     roster_set: Set[str] = set()
+
+    # Add active members from members_db (ensures zero-call members appear on roster)
+    if effective_members:
+        for m in effective_members:
+            if m.active and m.name:
+                norm = normalize_personnel_name(m.name) or m.name
+                roster_set.add(norm)
 
     if known_roster:
         for name in known_roster:
@@ -70,33 +83,83 @@ def build_report_dataset(
             if norm:
                 roster_set.add(norm)
 
-    # Add all responders from active incident records
-    incident_responders_map: Dict[str, Set[str]] = {}
+    # 2. Parse/re-parse CAD notes with current members if available
+    cad_parser = CADParser(effective_members) if effective_members else None
+
+    all_unmapped_cad_marks: List[UnmappedCADMark] = []
+    unmapped_cad_frequency: Counter = Counter()
+
+    # Collect responders from active incident records (Report + Radio)
+    incident_report_map: Dict[str, Set[str]] = {}
+    incident_radio_map: Dict[str, Set[str]] = {}
+
     for inc in active_incidents:
-        norm_responders = set(inc.get_normalized_responders())
-        incident_responders_map[inc.incident_number] = norm_responders
-        roster_set.update(norm_responders)
+        # Report responders
+        norm_report = set(inc.get_normalized_responders())
+        incident_report_map[inc.incident_number] = norm_report
+        roster_set.update(norm_report)
+
+        # Re-parse CAD notes if available to ensure live sync with members
+        if inc.cad_notes and cad_parser:
+            tokens, radio_resp, unmapped = cad_parser.parse_cad_text(
+                cad_text=inc.cad_notes,
+                incident_number=inc.incident_number,
+                incident_date=inc.incident_date,
+            )
+            inc.radio_markups_found = list(dict.fromkeys(inc.radio_markups_found + tokens))
+            inc.radio_responders = list(dict.fromkeys(inc.radio_responders + radio_resp))
+            existing_unmapped = {u.token for u in inc.unmapped_radio_marks}
+            for u in unmapped:
+                if u.token not in existing_unmapped:
+                    inc.unmapped_radio_marks.append(u)
+                    existing_unmapped.add(u.token)
+
+        # Radio responders
+        norm_radio = {normalize_personnel_name(r) or r for r in inc.radio_responders if r}
+        incident_radio_map[inc.incident_number] = norm_radio
+        roster_set.update(norm_radio)
+
+        # Audit unmapped marks
+        for mark in inc.unmapped_radio_marks:
+            all_unmapped_cad_marks.append(mark)
+            unmapped_cad_frequency[mark.token] += 1
 
     sorted_roster = sorted(list(roster_set))
     total_incidents = len(active_incidents)
 
-    _log("Compiling member attendance matrix across all active incidents...")
-    # 2. Build attendance matrix & calculate member call counts
-    attendance_matrix: Dict[str, Dict[str, bool]] = {}
+    _log("Compiling multi-source attendance matrices across active incidents...")
+    # 3. Build multi-source attendance matrices (Report, Radio, Combined)
+    report_attendance_matrix: Dict[str, Dict[str, bool]] = {}
+    radio_attendance_matrix: Dict[str, Dict[str, bool]] = {}
+    combined_attendance_matrix: Dict[str, Dict[str, bool]] = {}
     member_calls_counter: Counter = Counter()
 
     for inc in active_incidents:
-        responders = incident_responders_map[inc.incident_number]
-        inc_matrix: Dict[str, bool] = {}
+        report_responders = incident_report_map[inc.incident_number]
+        radio_responders = incident_radio_map[inc.incident_number]
+
+        rep_row: Dict[str, bool] = {}
+        rad_row: Dict[str, bool] = {}
+        comb_row: Dict[str, bool] = {}
+
         for member in sorted_roster:
-            responded = member in responders
-            inc_matrix[member] = responded
-            if responded:
+            on_report = member in report_responders
+            on_radio = member in radio_responders
+            on_comb = on_report or on_radio
+
+            rep_row[member] = on_report
+            rad_row[member] = on_radio
+            comb_row[member] = on_comb
+
+            if on_comb:
                 member_calls_counter[member] += 1
-        attendance_matrix[inc.incident_number] = inc_matrix
+
+        report_attendance_matrix[inc.incident_number] = rep_row
+        radio_attendance_matrix[inc.incident_number] = rad_row
+        combined_attendance_matrix[inc.incident_number] = comb_row
 
     _log("Calculating individual member response counts and percentages...")
-    # 3. Build AttendanceSummary per member
+    # 4. Build AttendanceSummary per member (including 0-call members)
     personnel_summaries: Dict[str, AttendanceSummary] = {}
     for member in sorted_roster:
         calls = member_calls_counter[member]
@@ -174,7 +237,12 @@ def build_report_dataset(
         roster=sorted_roster,
         incidents=active_incidents,
         inactive_incidents=inactive_incidents,
-        attendance_matrix=attendance_matrix,
+        attendance_matrix=combined_attendance_matrix,
+        report_attendance_matrix=report_attendance_matrix,
+        radio_attendance_matrix=radio_attendance_matrix,
+        combined_attendance_matrix=combined_attendance_matrix,
+        all_unmapped_cad_marks=all_unmapped_cad_marks,
+        unmapped_cad_frequency=dict(unmapped_cad_frequency),
         personnel_summaries=personnel_summaries,
         type_summaries=type_summaries,
         apparatus_summaries=apparatus_summaries,

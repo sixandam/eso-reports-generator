@@ -23,10 +23,87 @@ from playwright.sync_api import BrowserContext, Page, Response
 from rich.console import Console
 
 from .config import ESO_SEARCH_URL
-from .models import Incident, normalize_personnel_name
+from .models import Incident, normalize_personnel_name, Member
+from .member_manager import load_members
+from .cad_parser import CADParser
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def extract_cad_notes_from_payload(item: dict) -> Optional[str]:
+    """
+    Extracts raw CAD dispatch notes or narrative text from ESO API payload.
+    Supports strings, lists of narrative dictionaries, and nested core/cad objects.
+    """
+    if not isinstance(item, dict):
+        return None
+
+    cad_candidates = [
+        item.get("cadNotes"),
+        item.get("cadComments"),
+        item.get("cadRemarks"),
+        item.get("cad"),
+        item.get("dispatchInfo"),
+        item.get("dispatchNotes"),
+        item.get("narratives"),
+        item.get("narrative"),
+    ]
+    core = item.get("core")
+    if isinstance(core, dict):
+        cad_candidates.extend([
+            core.get("cadNotes"),
+            core.get("cadComments"),
+            core.get("cadRemarks"),
+            core.get("cad"),
+            core.get("comments"),
+            core.get("narratives"),
+            core.get("narrative"),
+        ])
+
+    lines: List[str] = []
+    for cand in cad_candidates:
+        if not cand:
+            continue
+        if isinstance(cand, str):
+            clean = cand.strip()
+            if clean and clean not in lines:
+                lines.append(clean)
+        elif isinstance(cand, list):
+            for entry in cand:
+                if isinstance(entry, str):
+                    clean = entry.strip()
+                    if clean and clean not in lines:
+                        lines.append(clean)
+                elif isinstance(entry, dict):
+                    t = (
+                        entry.get("text")
+                        or entry.get("narrative")
+                        or entry.get("comment")
+                        or entry.get("remark")
+                        or entry.get("content")
+                        or entry.get("cadNotes")
+                    )
+                    if t and isinstance(t, str):
+                        clean = t.strip()
+                        if clean and clean not in lines:
+                            lines.append(clean)
+        elif isinstance(cand, dict):
+            t = (
+                cand.get("text")
+                or cand.get("narrative")
+                or cand.get("comment")
+                or cand.get("remarks")
+                or cand.get("notes")
+            )
+            if t and isinstance(t, str):
+                clean = t.strip()
+                if clean and clean not in lines:
+                    lines.append(clean)
+
+    if lines:
+        return "\n".join(lines)
+    return None
 
 
 def format_date_for_eso(date_str: str) -> str:
@@ -64,9 +141,12 @@ class ESOScraper:
         context: BrowserContext,
         debug_log_path: Optional[Any] = None,
         log_callback: Optional[Callable[[str], None]] = None,
+        members: Optional[List[Member]] = None,
     ):
         self.context = context
         self.log_callback = log_callback
+        self.members = members if members is not None else load_members()
+        self.cad_parser = CADParser(self.members)
         self.intercepted_incidents: Dict[str, Incident] = {}
         # O(1) secondary lookup mapping internal ESO record_id to CAD incident_number
         self.record_id_to_inc_num: Dict[str, str] = {}
@@ -251,6 +331,18 @@ class ESOScraper:
 
         has_details = bool(resources2 or raw_resources or raw_roster or core_inc_type)
 
+        # 4. Extract CAD notes and parse radio markups
+        cad_notes = extract_cad_notes_from_payload(item)
+        radio_markups: List[str] = []
+        radio_responders: List[str] = []
+        unmapped_marks: List[Any] = []
+        if cad_notes:
+            radio_markups, radio_responders, unmapped_marks = self.cad_parser.parse_cad_text(
+                cad_text=cad_notes,
+                incident_number=inc_num or "",
+                incident_date=core_date,
+            )
+
         with self._lock:
             # Fast O(1) matching: check incident_number index or secondary record_id index
             target_incident = None
@@ -295,6 +387,18 @@ class ESOScraper:
                 target_incident.person_apparatus = merged_pa
                 if has_details:
                     target_incident.details_fetched = True
+                if cad_notes:
+                    if target_incident.cad_notes and cad_notes not in target_incident.cad_notes:
+                        target_incident.cad_notes = target_incident.cad_notes + "\n" + cad_notes
+                    elif not target_incident.cad_notes:
+                        target_incident.cad_notes = cad_notes
+                    target_incident.radio_markups_found = list(dict.fromkeys(target_incident.radio_markups_found + radio_markups))
+                    target_incident.radio_responders = list(dict.fromkeys(target_incident.radio_responders + radio_responders))
+                    existing_unmapped = {u.token for u in target_incident.unmapped_radio_marks}
+                    for u in unmapped_marks:
+                        if u.token not in existing_unmapped:
+                            target_incident.unmapped_radio_marks.append(u)
+                            existing_unmapped.add(u.token)
                 # Protect PHI by discarding raw backend payload
                 target_incident.raw_data = None
             else:
@@ -309,6 +413,10 @@ class ESOScraper:
                     person_apparatus=person_apparatus,
                     details_fetched=has_details,
                     raw_data=None,
+                    cad_notes=cad_notes,
+                    radio_markups_found=radio_markups,
+                    radio_responders=radio_responders,
+                    unmapped_radio_marks=unmapped_marks,
                 )
                 self.intercepted_incidents[inc_num] = new_inc
                 if record_id:

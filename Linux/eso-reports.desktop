@@ -1,8 +1,8 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=ESO Reports
-Comment=Generate incident attendance and apparatus reports
+Name=ESO Reports Generator
+Comment=Automated ESO Suite Incident Reports and Attendance Generator
 Exec=eso-reports-gui
 Icon=eso-reports
 Terminal=false

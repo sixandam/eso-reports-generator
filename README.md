@@ -25,8 +25,8 @@ An automated tool to export incident response records from ESO Suite RMS into cl
 
 ## How to Use
 
-1. **Open Application**: Start **ESO Reports**.
+1. **Open Application**: Start **ESO Reports Generator**.
 2. **Select Date Range**: Choose dates using the **Start Date** and **End Date** buttons, or click **This Month** / **Last Month**.
 3. **Generate Report**: Click **Start report**.
 4. **Sign In (First Run Only)**: A browser window will open if authentication is required. Log in with your ESO credentials and complete MFA (Duo/SMS). The browser closes automatically once authenticated.
-5. **View Results**: When the status shows **Done**, open `fire_incidents_report.xlsx` saved directly on your **Desktop**.
+5. **View Results**: When the status shows **Done**, open `ESO Report.xlsx` saved directly on your **Desktop**.

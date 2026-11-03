@@ -13,7 +13,7 @@ def test_cli_help():
     runner = CliRunner()
     result = runner.invoke(main, ["--help"])
     assert result.exit_code == 0
-    assert "Launch the ESO Report Generator GUI" in result.output
+    assert "Launch the ESO Reports Generator GUI" in result.output
     # Assert no flags exist
     assert "--start-date" not in result.output
     assert "--end-date" not in result.output

@@ -48,8 +48,8 @@ mkdir -p "$HOME/.local/share/applications"
 DESKTOP_ENTRY="[Desktop Entry]
 Version=1.0
 Type=Application
-Name=ESO Reports
-Comment=Generate incident attendance and apparatus reports
+Name=ESO Reports Generator
+Comment=Automated ESO Suite Incident Reports and Attendance Generator
 Exec=$SCRIPT_DIR/.venv/bin/eso-reports-gui
 Icon=eso-reports
 Terminal=false

@@ -54,7 +54,7 @@ def test_excel_export_structure(tmp_path: Path):
     wb = openpyxl.load_workbook(result_path)
 
     # Verify sheet names
-    assert wb.sheetnames == ["Attendance Matrix", "Incident Types & Apparatus"]
+    assert wb.sheetnames == ["Attendance Matrix", "Incident Types & Apparatus", "CAD Notes & Radio Audit"]
 
     # 1. Verify Sheet 1: Attendance Matrix
     ws1 = wb["Attendance Matrix"]
@@ -130,7 +130,7 @@ def test_excel_export_empty_dataset(tmp_path: Path):
     assert result_path.exists()
 
     wb = openpyxl.load_workbook(result_path)
-    assert wb.sheetnames == ["Attendance Matrix", "Incident Types & Apparatus"]
+    assert wb.sheetnames == ["Attendance Matrix", "Incident Types & Apparatus", "CAD Notes & Radio Audit"]
     ws1 = wb["Attendance Matrix"]
     assert ws1.cell(row=2, column=1).value == "Total Calls Made"
     assert ws1.cell(row=2, column=2).value == "Total Incidents: 0"
@@ -206,5 +206,78 @@ def test_excel_export_permission_error_fallback(tmp_path: Path, monkeypatch):
     assert saved_path != out_file
     assert saved_path.exists()
     assert "locked_report_" in saved_path.name
+
+
+def test_excel_export_multisource_and_sheet3(tmp_path: Path):
+    from eso_reports.models import Member
+    members = [
+        Member(name="Adams, John", primary_id="1501", aliases=["1501", "CHF 15"], active=True),
+        Member(name="Baker, Mary", primary_id="1502", aliases=["1502"], active=True),
+        Member(name="Zero, Responder", primary_id="1599", aliases=["1599"], active=True),
+    ]
+
+    incidents = [
+        Incident(
+            incident_number="CO15-01",
+            incident_type="111 - Building fire",
+            incident_date="10/17/2026 20:25",
+            responders=["Adams, John", "Baker, Mary"],  # Adams on report
+            cad_notes="[20:26:00] CHF 15 EN ROUTE POV\n[20:27:00] 1588 UNKNOWN POV",  # Adams also on radio; 1588 unmapped
+        ),
+        Incident(
+            incident_number="CO15-02",
+            incident_type="321 - EMS call",
+            incident_date="10/18/2026 08:30",
+            responders=["Baker, Mary"],  # Baker on report only
+            cad_notes="[08:31:00] 1501 MARKED UP",  # Adams on radio only
+        ),
+    ]
+
+    dataset = build_report_dataset(incidents, members_db=members)
+    out_file = tmp_path / "ESO Report.xlsx"
+    export_report_to_excel(dataset, out_file)
+
+    wb = openpyxl.load_workbook(out_file)
+    assert "CAD Notes & Radio Audit" in wb.sheetnames
+
+    # Sheet 1: Master Attendance Matrix
+    ws1 = wb["Attendance Matrix"]
+    # Check that Zero, Responder is included in roster headers
+    headers = [cell.value for cell in ws1[1]]
+    assert "Zero, Responder" in headers
+    assert "Adams, John" in headers
+    assert "Baker, Mary" in headers
+
+    adams_col = headers.index("Adams, John") + 1
+    baker_col = headers.index("Baker, Mary") + 1
+    zero_col = headers.index("Zero, Responder") + 1
+
+    # Row 2 (CO15-01): Adams on report AND radio -> XR; Baker on report -> X; Zero -> ""
+    assert ws1.cell(row=2, column=adams_col).value == "XR"
+    assert ws1.cell(row=2, column=baker_col).value == "X"
+    assert ws1.cell(row=2, column=zero_col).value in (None, "")
+
+    # Row 3 (CO15-02): Adams on radio only -> R; Baker on report only -> X
+    assert ws1.cell(row=3, column=adams_col).value == "R"
+    assert ws1.cell(row=3, column=baker_col).value == "X"
+    assert ws1.cell(row=3, column=zero_col).value in (None, "")
+
+    # Summary row for Zero, Responder should show 0/2 (0.0%)
+    summary_row = 4
+    assert ws1.cell(row=summary_row, column=zero_col).value == "0/2 (0.0%)"
+
+    # Sheet 3: CAD Notes & Radio Audit
+    ws3 = wb["CAD Notes & Radio Audit"]
+    # Check Section 1 header
+    assert ws3.cell(row=1, column=1).value == "INCIDENT CAD & RADIO BREAKDOWN"
+    # Check unmapped call sign 1588 appears in Section 2
+    found_1588 = False
+    for r in range(1, ws3.max_row + 1):
+        if ws3.cell(row=r, column=1).value == "1588":
+            found_1588 = True
+            assert ws3.cell(row=r, column=2).value == "CO15-01"
+            break
+    assert found_1588
+
 
 

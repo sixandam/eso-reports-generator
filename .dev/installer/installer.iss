@@ -1,7 +1,7 @@
 ; Inno Setup Script for ESO Reports
 ; Compiles dist/eso-reports-setup.exe installer wizard
 
-#define MyAppName "ESO Reports"
+#define MyAppName "ESO Reports Generator"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "ESO Reports"
 #define MyAppURL "https://www.esosuite.net"
@@ -15,7 +15,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={localappdata}\Programs\ESO Reports
+DefaultDirName={localappdata}\Programs\ESO Reports Generator
 DisableProgramGroupPage=yes
 ; Per-user installation: no administrative privileges required
 PrivilegesRequired=lowest

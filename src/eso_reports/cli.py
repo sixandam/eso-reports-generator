@@ -14,7 +14,7 @@ except (ImportError, ValueError):
 
 @click.command(name="eso-reports")
 def main() -> None:
-    """Launch the ESO Report Generator GUI."""
+    """Launch the ESO Reports Generator GUI."""
     launch_gui()
 
 

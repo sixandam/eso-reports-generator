@@ -26,6 +26,14 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QCalendarWidget,
     QToolButton,
+    QDialog,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QLineEdit,
+    QCheckBox,
+    QFileDialog,
+    QAbstractItemView,
 )
 
 from .config import (
@@ -39,6 +47,13 @@ from .auth import SessionManager, find_system_browser
 from .scraper import ESOScraper, format_date_for_eso
 from .aggregator import build_report_dataset
 from .excel_exporter import export_report_to_excel
+from .models import Member, normalize_personnel_name
+from .member_manager import (
+    load_members,
+    save_members,
+    import_members_from_csv,
+    export_members_to_csv,
+)
 
 
 def load_check_pixmap(size: int = 18) -> QPixmap:
@@ -214,6 +229,55 @@ QCalendarWidget QAbstractItemView:enabled {
 QCalendarWidget QAbstractItemView:disabled {
     color: #475569;
 }
+
+QDialog {
+    background-color: #0f172a;
+}
+
+QTableWidget {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #f1f5f9;
+    gridline-color: #334155;
+    font-size: 13px;
+}
+
+QTableWidget::item {
+    padding: 6px;
+}
+
+QTableWidget::item:selected {
+    background-color: #2563eb;
+    color: #ffffff;
+}
+
+QHeaderView::section {
+    background-color: #0f172a;
+    color: #94a3b8;
+    font-weight: 700;
+    padding: 6px;
+    border: 1px solid #334155;
+}
+
+QLineEdit {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #f8fafc;
+    font-size: 13px;
+}
+
+QLineEdit:focus {
+    border-color: #38bdf8;
+}
+
+QCheckBox {
+    color: #f1f5f9;
+    font-size: 13px;
+    spacing: 8px;
+}
 """
 
 
@@ -283,15 +347,18 @@ class ScraperWorker(QThread):
 
             with session_mgr.launch_authenticated_context(headless=True) as (browser, context):
                 self.log_signal.emit("Authentication complete.")
+                members = load_members()
                 scraper = ESOScraper(
                     context=context,
                     log_callback=lambda msg: self.log_signal.emit(msg),
+                    members=members,
                 )
                 incidents = scraper.search_and_extract(self.start_date, self.end_date)
 
                 self.log_signal.emit("Analyzing rosters and attendance...")
                 dataset = build_report_dataset(
                     incidents=incidents,
+                    members_db=members,
                     start_date=start_disp,
                     end_date=end_disp,
                     log_callback=lambda msg: self.log_signal.emit(msg),
@@ -318,6 +385,264 @@ class ScraperWorker(QThread):
             self.finished_signal.emit(False, "", {}, str(e))
 
 
+class MemberEditDialog(QDialog):
+    """Modal dialog for creating or editing a department member."""
+
+    def __init__(self, parent=None, member: Optional[Member] = None):
+        super().__init__(parent)
+        self.member = member
+        self.result_member: Optional[Member] = None
+        self.setWindowTitle("Edit Member" if member else "Add Member")
+        self.setFixedSize(450, 320)
+        self.setStyleSheet(DARK_THEME_STYLE)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Name
+        lbl_name = QLabel("Member Name (Last, First):")
+        layout.addWidget(lbl_name)
+        self.edit_name = QLineEdit()
+        self.edit_name.setPlaceholderText("e.g. Wellons, Charles")
+        if member:
+            self.edit_name.setText(member.name)
+        layout.addWidget(self.edit_name)
+
+        # Primary ID
+        lbl_id = QLabel("Primary Radio / Badge ID:")
+        layout.addWidget(lbl_id)
+        self.edit_id = QLineEdit()
+        self.edit_id.setPlaceholderText("e.g. 1534")
+        if member:
+            self.edit_id.setText(member.primary_id)
+        layout.addWidget(self.edit_id)
+
+        # Aliases
+        lbl_aliases = QLabel("Radio Call Signs / Aliases (comma-separated):")
+        layout.addWidget(lbl_aliases)
+        self.edit_aliases = QLineEdit()
+        self.edit_aliases.setPlaceholderText("e.g. CHF 15, CF15, 1501, 15-34")
+        if member:
+            self.edit_aliases.setText(", ".join(member.aliases))
+        layout.addWidget(self.edit_aliases)
+
+        # Active Checkbox
+        self.chk_active = QCheckBox("Active Member (included in roster and attendance calculations)")
+        self.chk_active.setChecked(member.active if member else True)
+        layout.addWidget(self.chk_active)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_cancel)
+
+        self.btn_save = QPushButton("Save")
+        self.btn_save.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700;")
+        self.btn_save.clicked.connect(self._on_save)
+        btn_layout.addWidget(self.btn_save)
+
+        layout.addLayout(btn_layout)
+
+    def _on_save(self):
+        raw_name = self.edit_name.text().strip()
+        if not raw_name:
+            QMessageBox.warning(self, "Validation Error", "Member name cannot be empty.")
+            return
+
+        norm_name = normalize_personnel_name(raw_name) or raw_name
+        primary_id = self.edit_id.text().strip()
+        raw_aliases = self.edit_aliases.text().strip()
+
+        aliases = [a.strip() for a in raw_aliases.split(",") if a.strip()]
+        if primary_id and primary_id not in aliases:
+            aliases.insert(0, primary_id)
+
+        self.result_member = Member(
+            name=norm_name,
+            primary_id=primary_id,
+            aliases=aliases,
+            active=self.chk_active.isChecked(),
+        )
+        self.accept()
+
+
+class MemberManagerDialog(QDialog):
+    """Department roster and alias management dialog."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Department Members")
+        self.resize(720, 480)
+        self.setMinimumSize(620, 380)
+        self.setStyleSheet(DARK_THEME_STYLE)
+
+        self.members: List[Member] = load_members()
+        self._init_ui()
+        self._populate_table()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        # Header description
+        desc_label = QLabel("Configure department personnel, radio call signs, dispatcher aliases, and active status:")
+        desc_label.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        layout.addWidget(desc_label)
+
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Member Name", "Primary ID", "Radio Aliases", "Status"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.doubleClicked.connect(self._edit_selected_member)
+        layout.addWidget(self.table)
+
+        # Top Button row (Add, Edit, Remove, CSV)
+        row_actions = QHBoxLayout()
+        self.btn_add = QPushButton("Add Member")
+        self.btn_add.clicked.connect(self._add_member)
+        row_actions.addWidget(self.btn_add)
+
+        self.btn_edit = QPushButton("Edit Member")
+        self.btn_edit.clicked.connect(self._edit_selected_member)
+        row_actions.addWidget(self.btn_edit)
+
+        self.btn_remove = QPushButton("Remove")
+        self.btn_remove.clicked.connect(self._remove_member)
+        row_actions.addWidget(self.btn_remove)
+
+        row_actions.addStretch(1)
+
+        self.btn_import_csv = QPushButton("Import CSV...")
+        self.btn_import_csv.clicked.connect(self._import_csv)
+        row_actions.addWidget(self.btn_import_csv)
+
+        self.btn_export_csv = QPushButton("Export CSV...")
+        self.btn_export_csv.clicked.connect(self._export_csv)
+        row_actions.addWidget(self.btn_export_csv)
+
+        layout.addLayout(row_actions)
+
+        # Bottom Button row (Save & Close, Cancel)
+        bottom_layout = QHBoxLayout()
+        bottom_layout.addStretch(1)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        bottom_layout.addWidget(self.btn_cancel)
+
+        self.btn_save_close = QPushButton("Save & Close")
+        self.btn_save_close.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; min-width: 120px;")
+        self.btn_save_close.clicked.connect(self._save_and_close)
+        bottom_layout.addWidget(self.btn_save_close)
+
+        layout.addLayout(bottom_layout)
+
+    def _populate_table(self):
+        self.table.setRowCount(len(self.members))
+        for row, m in enumerate(self.members):
+            item_name = QTableWidgetItem(m.name)
+            item_id = QTableWidgetItem(m.primary_id)
+            item_aliases = QTableWidgetItem(", ".join(m.aliases))
+            status_text = "Active" if m.active else "Inactive"
+            item_status = QTableWidgetItem(status_text)
+            if not m.active:
+                item_status.setForeground(Qt.GlobalColor.gray)
+
+            item_id.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item_status.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            self.table.setItem(row, 0, item_name)
+            self.table.setItem(row, 1, item_id)
+            self.table.setItem(row, 2, item_aliases)
+            self.table.setItem(row, 3, item_status)
+
+    def _add_member(self):
+        dlg = MemberEditDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_member:
+            self.members.append(dlg.result_member)
+            self._populate_table()
+
+    def _edit_selected_member(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self.members):
+            return
+        current_m = self.members[row]
+        dlg = MemberEditDialog(self, member=current_m)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_member:
+            self.members[row] = dlg.result_member
+            self._populate_table()
+
+    def _remove_member(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self.members):
+            return
+        m = self.members[row]
+        reply = QMessageBox.question(
+            self,
+            "Confirm Removal",
+            f"Are you sure you want to remove '{m.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.members.pop(row)
+            self._populate_table()
+
+    def _import_csv(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Members from CSV",
+            "",
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if file_path:
+            try:
+                imported = import_members_from_csv(Path(file_path))
+                existing_names = {m.name for m in self.members}
+                added_count = 0
+                for imp in imported:
+                    if imp.name in existing_names:
+                        idx = next(i for i, m in enumerate(self.members) if m.name == imp.name)
+                        self.members[idx] = imp
+                    else:
+                        self.members.append(imp)
+                        existing_names.add(imp.name)
+                        added_count += 1
+                self._populate_table()
+                QMessageBox.information(self, "Import Complete", f"Successfully imported {len(imported)} members ({added_count} new).")
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", f"Failed to import CSV: {e}")
+
+    def _export_csv(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Members to CSV",
+            "members.csv",
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if file_path:
+            try:
+                export_members_to_csv(self.members, Path(file_path))
+                QMessageBox.information(self, "Export Complete", f"Exported {len(self.members)} members to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Failed to export CSV: {e}")
+
+    def _save_and_close(self):
+        save_members(self.members)
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     """
     Clean, simple desktop window in Dark Mode.
@@ -335,7 +660,7 @@ class MainWindow(QMainWindow):
         self.worker: Optional[ScraperWorker] = None
         self.generated_report_path: Optional[str] = None
 
-        self.setWindowTitle("ESO Report Generator")
+        self.setWindowTitle("ESO Reports Generator")
         if ICO_PATH.exists():
             self.setWindowIcon(QIcon(str(ICO_PATH)))
         elif LOGO_PATH.exists():
@@ -393,7 +718,7 @@ class MainWindow(QMainWindow):
             self.logo_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
             header_layout.addWidget(self.logo_label)
 
-        self.title_label = QLabel("ESO Report Generator")
+        self.title_label = QLabel("ESO Reports Generator")
         self.title_label.setObjectName("headerTitle")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         header_layout.addWidget(self.title_label)
@@ -471,6 +796,16 @@ class MainWindow(QMainWindow):
 
         row3.addStretch(1)
         controls_layout.addLayout(row3)
+
+        # Row 4: Centered secondary button to open Member Manager
+        row4 = QHBoxLayout()
+        row4.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.btn_manage_members = QPushButton("Manage Members")
+        self.btn_manage_members.setFixedHeight(36)
+        self.btn_manage_members.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_manage_members.clicked.connect(self._open_member_manager)
+        row4.addWidget(self.btn_manage_members)
+        controls_layout.addLayout(row4)
 
         main_layout.addWidget(controls_widget, 0)
 
@@ -560,6 +895,10 @@ class MainWindow(QMainWindow):
         self.status_label.setText("")
         self.status_icon.clear()
         self._update_date_labels()
+
+    def _open_member_manager(self):
+        dialog = MemberManagerDialog(self)
+        dialog.exec()
 
     def _start_generation(self):
         if self.start_date > self.end_date:
@@ -652,7 +991,7 @@ def launch_gui(output_path: Path = DEFAULT_OUTPUT_PATH):
     )
 
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("ESO Report Generator")
+    app.setApplicationName("ESO Reports Generator")
     if ICO_PATH.exists():
         app.setWindowIcon(QIcon(str(ICO_PATH)))
     elif LOGO_PATH.exists():
