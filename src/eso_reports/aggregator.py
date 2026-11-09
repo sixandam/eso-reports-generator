@@ -14,6 +14,7 @@ from .models import (
     ReportDataset,
     Member,
     UnmappedCADMark,
+    CADLegendEntry,
     normalize_personnel_name,
     format_display_name,
     extract_name_and_badge,
@@ -317,6 +318,45 @@ def build_report_dataset(
             u: (u in attended_units) for u in sorted_units
         }
 
+    # 7. CAD entry legend: resolves each distinct entry the same way the matrix above does
+    legend_counts: Counter = Counter()
+    legend_raw: Dict[str, str] = {}
+    for inc in active_incidents:
+        entries = {" ".join(t.upper().split()): t for t in inc.radio_markups_found}
+        legend_counts.update(entries.keys())
+        for entry, raw in entries.items():
+            legend_raw.setdefault(entry, raw)
+
+    on_sheet = set(sorted_units)
+    cad_legend: List[CADLegendEntry] = []
+    for entry, seen in legend_counts.items():
+        raw = legend_raw[entry]
+        member = cad_parser.match_token_to_member(raw) if cad_parser else None
+        member_unit = None
+        if member and member.active and member.name:
+            norm = normalize_personnel_name(member.name)
+            member_unit = name_to_unit.get(norm) or name_to_unit.get(format_display_name(norm))
+        token_unit = extract_unit_from_token(raw)
+
+        unit = next((u for u in (member_unit, token_unit) if u in on_sheet), None)
+        if unit:
+            status = "Marks attendance"
+        elif member_unit or token_unit:
+            unit = member_unit or token_unit
+            status = "Unit not on sheet"
+        else:
+            status = "No match"
+        cad_legend.append(
+            CADLegendEntry(
+                cad_entry=entry,
+                unit_number=unit or "",
+                member_name=unit_to_name.get(unit, "") if unit else "",
+                status=status,
+                times_seen=seen,
+            )
+        )
+    cad_legend.sort(key=lambda e: (e.status == "No match", int(e.unit_number) if e.unit_number.isdigit() else 9999, e.cad_entry))
+
     return ReportDataset(
         start_date=start_date,
         end_date=end_date,
@@ -330,6 +370,7 @@ def build_report_dataset(
         combined_attendance_matrix=combined_attendance_matrix,
         all_unmapped_cad_marks=all_unmapped_cad_marks,
         unmapped_cad_frequency=dict(unmapped_cad_frequency),
+        cad_legend=cad_legend,
         personnel_summaries=personnel_summaries,
         type_summaries=type_summaries,
         apparatus_summaries=apparatus_summaries,

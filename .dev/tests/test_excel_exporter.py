@@ -173,6 +173,42 @@ def test_excel_export_formatting_rules(tmp_path: Path):
                 assert ws.column_dimensions[col[0].column_letter].width >= longest
 
 
+def test_debug_tables_and_legend_sit_right_of_top_tables(tmp_path: Path):
+    members = [
+        Member(name="Garber, James Steven, Jr.", primary_id="1539",
+               aliases=["1539", "CHF 15", "CF15", "CHIEF 15", "1501"], active=True),
+    ]
+    incidents = [
+        Incident(
+            incident_number="CO15202600356",
+            incident_type="MVC",
+            cad_notes="11/6/2026 17:19:49 - CHF 15 ENRT; 11/6/2026 17:20:11 - CHIEF 15 ST; "
+                      "11/6/2026 17:21:00 - 1503 ENRT; 11/6/2026 17:22:00 - PMPR15",
+        ),
+    ]
+    out_file = tmp_path / "legend.xlsx"
+    export_report_to_excel(build_report_dataset(incidents, members_db=members), out_file)
+    ws2 = openpyxl.load_workbook(out_file)["Other"]
+
+    assert ws2.cell(row=1, column=11).value == "INCIDENT CAD & RADIO BREAKDOWN"
+    assert ws2.cell(row=1, column=18).value == "CAD ENTRY LEGEND"
+    assert all(ws2.cell(row=r, column=1).value != "INCIDENT CAD & RADIO BREAKDOWN" for r in range(1, ws2.max_row + 1))
+
+    legend = {}
+    r = 3
+    while ws2.cell(row=r, column=18).value:
+        legend[ws2.cell(row=r, column=18).value] = [ws2.cell(row=r, column=c).value for c in range(19, 23)]
+        r += 1
+    assert legend["CHF 15"] == ["1539", "James Steven Garber, Jr.", "Marks attendance", 1]
+    assert legend["CHIEF 15"][:1] == ["1539"]
+    assert legend["1503"][0] == "1503" and legend["1503"][2] == "Unit not on sheet"
+    assert legend["PMPR15"][2] == "No match"
+
+    # Audit log quotes only the CAD entry containing the mark, never the whole note
+    snippets = [ws2.cell(row=x, column=14).value for x in range(1, ws2.max_row + 1)]
+    assert "11/6/2026 17:21:00 - 1503 ENRT" in snippets
+
+
 def test_excel_export_empty_dataset(tmp_path: Path):
     dataset = build_report_dataset([])
     output_file = tmp_path / "empty_report.xlsx"

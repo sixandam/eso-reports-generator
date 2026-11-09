@@ -209,6 +209,15 @@ class UnmappedCADMark(BaseModel):
     reason: str = Field(default="Not found in Member Manager", description="Reason for unmapped status")
 
 
+class CADLegendEntry(BaseModel):
+    """How one distinct CAD entry resolved to a unit number."""
+    cad_entry: str = Field(description="Entry as written in CAD, e.g. 'CHF 15'")
+    unit_number: str = Field(default="", description="Resolved unit number, blank if none")
+    member_name: str = Field(default="", description="Display name for the unit, blank if none")
+    status: str = Field(description="'Marks attendance', 'Unit not on sheet', or 'No match'")
+    times_seen: int = Field(description="Number of incidents containing this entry")
+
+
 class Incident(BaseModel):
     """Represents a single fire/EMS incident record."""
     model_config = ConfigDict(extra="ignore")
@@ -311,6 +320,10 @@ class ReportDataset(BaseModel):
     unmapped_cad_frequency: Dict[str, int] = Field(
         default_factory=dict,
         description="Frequency count of unrecognized CAD call signs across all calls"
+    )
+    cad_legend: List[CADLegendEntry] = Field(
+        default_factory=list,
+        description="Every distinct CAD entry and the unit number it resolved to"
     )
     personnel_summaries: Dict[str, AttendanceSummary]
     type_summaries: List[IncidentTypeSummary]
