@@ -97,6 +97,14 @@ def test_fuzzy_command_matching(sample_members):
     assert parser.match_token_to_member("CF 15").name == "Wellons, Charles"
 
 
+def test_short_numeric_alias_does_not_match_times_or_addresses():
+    parser = CADParser([Member(name="Wellons, Charles", primary_id="1534", aliases=["1534", "34"], active=True)])
+    tokens, responders, unmapped = parser.parse_cad_text("CALL AT 17:34:05\n34 MAIN ST", incident_number="X")
+    assert tokens == []
+    assert responders == []
+    assert unmapped == []
+
+
 def test_cad_parsing_and_unmapped(sample_members):
     parser = CADParser(sample_members)
     cad_text = """

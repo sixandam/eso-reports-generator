@@ -40,6 +40,10 @@ ALIGN_LEFT = Alignment(horizontal="left", vertical="center")
 ALIGN_CENTER = Alignment(horizontal="center", vertical="center")
 ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
 
+# Testing layout on the 'Other' sheet: debug tables start at K, CAD legend at R (J and Q are spacers)
+DEBUG_COL = 11
+LEGEND_COL = 18
+
 
 def _format_cell_date(date_str: str) -> str:
     """Formats incident timestamps into clean MM/DD/YYYY HH:MM or MM/DD/YYYY format."""
@@ -100,56 +104,20 @@ def _apply_box_border(
             cell.border = Border(top=top, bottom=bottom, left=left, right=right)
 
 
-# Column slots used by the debug tables on the 'Other' sheet. Columns C, F and G are narrow
-# spacers between the top tables, so the debug tables merge across them instead of
-# placing data into a 4-character-wide column.
-DEBUG_TABLE_SLOTS = [(1, 1), (2, 3), (4, 4), (5, 7), (8, 8), (9, 9)]
+def _text_width(text: str) -> float:
+    """Estimates display width in Excel column units; capitals in Arial are wider than a digit."""
+    return sum(1.3 if ch.isupper() else 1.0 for ch in text)
 
 
-def _write_debug_table(ws, start_row: int, title: str, headers: list, rows: list) -> int:
-    """
-    Writes a titled table using the same styling as the top tables on the 'Other' sheet:
-    bold header row, thin inner borders, medium outer box border, consistent row heights.
-    Returns the last row written.
-    """
-    ws.cell(row=start_row, column=1, value=title).font = BOLD_FONT
-    header_row = start_row + 1
-    slots = DEBUG_TABLE_SLOTS[: len(headers)]
-
-    def _write_row(r: int, values: list, font: Font, height: int):
-        for (c_start, c_end), val in zip(slots, values):
-            if c_end > c_start:
-                ws.merge_cells(start_row=r, start_column=c_start, end_row=r, end_column=c_end)
-            cell = ws.cell(row=r, column=c_start, value=val)
-            cell.font = font
-            cell.alignment = ALIGN_LEFT
-            for c in range(c_start, c_end + 1):
-                ws.cell(row=r, column=c).border = THIN_BORDER
-        ws.row_dimensions[r].height = height
-
-    _write_row(header_row, headers, BOLD_FONT, 22)
-    r = header_row
-    for values in rows:
-        r += 1
-        _write_row(r, values, REGULAR_FONT, 20)
-
-    _apply_box_border(ws, min_row=header_row, max_row=r, min_col=1, max_col=slots[-1][1])
-    return r
-
-
-def _auto_fit_columns(ws, min_width: int = 12, max_width: int = 50):
-    """Dynamically adjust worksheet column widths based on content."""
+def _auto_fit_columns(ws, padding: float = 2.0, empty_width: float = 4.0, max_width: float = 255.0):
+    """Sizes each column to its widest cell. Columns with no content stay narrow spacers."""
     for col in ws.columns:
         col_letter = get_column_letter(col[0].column)
-        max_len = 0
-        for cell in col:
-            val_str = str(cell.value or "")
-            lines = val_str.split("\n")
-            line_len = max(len(line) for line in lines) if lines else 0
-            if line_len > max_len:
-                max_len = line_len
-        calculated_width = max(max_len + 3, min_width)
-        ws.column_dimensions[col_letter].width = min(calculated_width, max_width)
+        widest = max(
+            (_text_width(line) for cell in col if cell.value is not None for line in str(cell.value).split("\n")),
+            default=0.0,
+        )
+        ws.column_dimensions[col_letter].width = min(widest + padding, max_width) if widest else empty_width
 
 
 def export_report_to_excel(
@@ -161,10 +129,10 @@ def export_report_to_excel(
     Builds the standardized 2-sheet plain-text Excel report workbook.
     
     Sheet 1: 'Call Percentage'
-      - Rows: Unit #, Name, #[last three digits of call number] for each call.
+      - Rows: Unit #, Name, #[last three digits of call number] for each call, Percentage.
       - Frozen columns: Unit # (A) and Name (B).
       - Frozen row: Top row (1).
-      - Unit # column bolded.
+      - Unit # column (including its header) is the only bold text in the workbook.
       - Outlines on every box.
       - Print setup repeats columns A and B on multi-page prints.
     
@@ -175,7 +143,8 @@ def export_report_to_excel(
         - Other (Cols H-I, 2 column space from Apparatus; contains questionable CAD marks and inactive reports)
         - Outer borders around each top table.
       - No frozen top rows.
-      - Debugging sections below top tables (Incident CAD breakdown, unmapped audit log, frequency summary).
+      - Debugging sections to the right of the top tables (Incident CAD breakdown, unmapped audit log,
+        frequency summary), then a CAD entry legend to the right of those.
     """
     def _log(msg: str):
         if log_callback:
@@ -197,20 +166,14 @@ def export_report_to_excel(
 
     # Row 1: Headers: Unit #, Name, followed by #[last three digits] for each call
     call_headers = [format_call_header(inc.incident_number) for inc in dataset.incidents]
-    headers_ws1 = ["Unit #", "Name"] + call_headers + ["Total Calls Made (%)"]
-    total_col_idx = len(headers_ws1)
-    total_calls = len(dataset.incidents)
+    headers_ws1 = ["Unit #", "Name"] + call_headers + ["Percentage"]
     ws1.append(headers_ws1)
 
     for col_idx in range(1, len(headers_ws1) + 1):
         cell = ws1.cell(row=1, column=col_idx)
-        cell.font = BOLD_FONT
-        if col_idx == 2:
-            cell.alignment = ALIGN_LEFT
-        elif col_idx == total_col_idx:
-            cell.alignment = ALIGN_RIGHT
-        else:
-            cell.alignment = ALIGN_CENTER
+        # The Unit # column is the only bold text in the workbook
+        cell.font = BOLD_FONT if col_idx == 1 else REGULAR_FONT
+        cell.alignment = ALIGN_LEFT if col_idx == 2 else ALIGN_CENTER
         cell.border = THIN_BORDER
     ws1.row_dimensions[1].height = 24
 
@@ -218,17 +181,14 @@ def export_report_to_excel(
     current_row = 2
     for unit_num in dataset.unit_roster:
         name_val = dataset.unit_to_name.get(unit_num, "")
-        row_vals = [unit_num, name_val]
-
-        attended_count = 0
-        for inc in dataset.incidents:
-            attended = dataset.unit_attendance_matrix.get(inc.incident_number, {}).get(unit_num, False)
-            if attended:
-                attended_count += 1
-            row_vals.append("X" if attended else "")
-
-        pct = (attended_count / total_calls * 100.0) if total_calls else 0.0
-        row_vals.append(f"{attended_count}/{total_calls} ({pct:.1f}%)")
+        call_marks = [
+            "X" if dataset.unit_attendance_matrix.get(inc.incident_number, {}).get(unit_num, False) else ""
+            for inc in dataset.incidents
+        ]
+        calls_made = call_marks.count("X")
+        total_calls = dataset.total_incidents
+        pct = (calls_made / total_calls * 100.0) if total_calls else 0.0
+        row_vals = [unit_num, name_val, *call_marks, f"{calls_made}/{total_calls} ({pct:.1f}%)"]
 
         ws1.append(row_vals)
         ws1.row_dimensions[current_row].height = 20
@@ -238,15 +198,12 @@ def export_report_to_excel(
             cell = ws1.cell(row=current_row, column=col_idx)
             cell.border = THIN_BORDER
             if col_idx == 1:
-                # The Unit # column should be bolded
+                # The Unit # column is the only bold text in the workbook
                 cell.font = BOLD_FONT
                 cell.alignment = ALIGN_CENTER
             elif col_idx == 2:
                 cell.font = REGULAR_FONT
                 cell.alignment = ALIGN_LEFT
-            elif col_idx == total_col_idx:
-                cell.font = BOLD_FONT
-                cell.alignment = ALIGN_RIGHT
             else:
                 cell.font = REGULAR_FONT
                 cell.alignment = ALIGN_CENTER
@@ -259,15 +216,6 @@ def export_report_to_excel(
     ws1.print_title_cols = "A:B"
     ws1.print_title_rows = "1:1"
 
-    # Column widths for Sheet 1
-    ws1.column_dimensions["A"].width = 12
-    max_name_len = max([len(dataset.unit_to_name.get(u, "")) for u in dataset.unit_roster] + [len("Name")])
-    ws1.column_dimensions["B"].width = max(max_name_len + 4, 22)
-    for c_idx in range(3, total_col_idx):
-        c_letter = get_column_letter(c_idx)
-        ws1.column_dimensions[c_letter].width = 8
-    ws1.column_dimensions[get_column_letter(total_col_idx)].width = 22
-
     # =========================================================================
     # --- Sheet 2: Other ---
     # =========================================================================
@@ -278,11 +226,11 @@ def export_report_to_excel(
     ws2.freeze_panes = None
 
     # --- Top Table 1: Incident Types (Columns A & B, Rows 1 to N) ---
-    ws2.cell(row=1, column=1, value="Incident Type").font = BOLD_FONT
+    ws2.cell(row=1, column=1, value="Incident Type").font = REGULAR_FONT
     ws2.cell(row=1, column=1).alignment = ALIGN_LEFT
     ws2.cell(row=1, column=1).border = THIN_BORDER
 
-    ws2.cell(row=1, column=2, value="Total Calls Made (%)").font = BOLD_FONT
+    ws2.cell(row=1, column=2, value="Total Calls Made (%)").font = REGULAR_FONT
     ws2.cell(row=1, column=2).alignment = ALIGN_RIGHT
     ws2.cell(row=1, column=2).border = THIN_BORDER
     ws2.row_dimensions[1].height = 22
@@ -301,11 +249,11 @@ def export_report_to_excel(
         t1_row += 1
 
     total_types_count = sum(t.count for t in dataset.type_summaries)
-    ws2.cell(row=t1_row, column=1, value="Total Incidents").font = BOLD_FONT
+    ws2.cell(row=t1_row, column=1, value="Total Incidents").font = REGULAR_FONT
     ws2.cell(row=t1_row, column=1).alignment = ALIGN_LEFT
     ws2.cell(row=t1_row, column=1).border = SUMMARY_BORDER
 
-    ws2.cell(row=t1_row, column=2, value=f"{total_types_count}/{dataset.total_incidents} (100.0%)").font = BOLD_FONT
+    ws2.cell(row=t1_row, column=2, value=f"{total_types_count}/{dataset.total_incidents} (100.0%)").font = REGULAR_FONT
     ws2.cell(row=t1_row, column=2).alignment = ALIGN_RIGHT
     ws2.cell(row=t1_row, column=2).border = SUMMARY_BORDER
     ws2.row_dimensions[t1_row].height = 22
@@ -314,15 +262,12 @@ def export_report_to_excel(
     # Outer border around Table 1
     _apply_box_border(ws2, min_row=1, max_row=t1_last_row, min_col=1, max_col=2)
 
-    # Column C: Spacer between Incident Types and Apparatus
-    ws2.column_dimensions["C"].width = 4
-
     # --- Top Table 2: Apparatus (Columns D & E, Rows 1 to M) ---
-    ws2.cell(row=1, column=4, value="Apparatus").font = BOLD_FONT
+    ws2.cell(row=1, column=4, value="Apparatus").font = REGULAR_FONT
     ws2.cell(row=1, column=4).alignment = ALIGN_LEFT
     ws2.cell(row=1, column=4).border = THIN_BORDER
 
-    ws2.cell(row=1, column=5, value="Total Calls Made (%)").font = BOLD_FONT
+    ws2.cell(row=1, column=5, value="Total Calls Made (%)").font = REGULAR_FONT
     ws2.cell(row=1, column=5).alignment = ALIGN_RIGHT
     ws2.cell(row=1, column=5).border = THIN_BORDER
 
@@ -353,16 +298,12 @@ def export_report_to_excel(
     # Outer border around Table 2
     _apply_box_border(ws2, min_row=1, max_row=t2_last_row, min_col=4, max_col=5)
 
-    # Columns F & G: Two spacer columns between Apparatus and Other
-    ws2.column_dimensions["F"].width = 4
-    ws2.column_dimensions["G"].width = 4
-
     # --- Top Table 3: Other (Columns H & I, Rows 1 to K) ---
-    ws2.cell(row=1, column=8, value="Other").font = BOLD_FONT
+    ws2.cell(row=1, column=8, value="Other").font = REGULAR_FONT
     ws2.cell(row=1, column=8).alignment = ALIGN_LEFT
     ws2.cell(row=1, column=8).border = THIN_BORDER
 
-    ws2.cell(row=1, column=9, value="Description").font = BOLD_FONT
+    ws2.cell(row=1, column=9, value="Description").font = REGULAR_FONT
     ws2.cell(row=1, column=9).alignment = ALIGN_LEFT
     ws2.cell(row=1, column=9).border = THIN_BORDER
 
@@ -429,22 +370,31 @@ def export_report_to_excel(
     # Outer border around Table 3
     _apply_box_border(ws2, min_row=1, max_row=t3_last_row, min_col=8, max_col=9)
 
-    # Column widths for top tables
-    ws2.column_dimensions["A"].width = 24
-    ws2.column_dimensions["B"].width = 22
-    ws2.column_dimensions["D"].width = 22
-    ws2.column_dimensions["E"].width = 22
-    ws2.column_dimensions["H"].width = 20
-    ws2.column_dimensions["I"].width = 52
-
     # =========================================================================
-    # --- Debugging Tables (below top tables) ---
+    # --- Debugging Tables (to the right of the top tables, while testing) ---
     # =========================================================================
-    max_top_row = max(t1_last_row, t2_last_row, t3_last_row)
-    curr_debug_row = max_top_row + 3
+    curr_debug_row = 1
 
     # Section 1: Incident CAD & Radio Breakdown
-    cad_rows = []
+    ws2.cell(row=curr_debug_row, column=DEBUG_COL, value="INCIDENT CAD & RADIO BREAKDOWN").font = REGULAR_FONT
+    curr_debug_row += 1
+
+    headers_cad = [
+        "Incident Number",
+        "Date",
+        "Personnel on Report",
+        "Radio Marks Found",
+        "Mapped Members",
+        "CAD Notes Snippet",
+    ]
+    for col_idx, h in enumerate(headers_cad, DEBUG_COL):
+        c = ws2.cell(row=curr_debug_row, column=col_idx, value=h)
+        c.font = REGULAR_FONT
+        c.alignment = ALIGN_LEFT
+        c.border = THIN_BORDER
+    ws2.row_dimensions[curr_debug_row].height = 22
+    curr_debug_row += 1
+
     for inc in dataset.incidents:
         clean_date = _format_cell_date(inc.incident_date or "")
         rep_str = ", ".join(inc.get_normalized_responders()) if inc.responders else "None"
@@ -452,54 +402,117 @@ def export_report_to_excel(
         mapped_str = ", ".join(inc.radio_responders) if inc.radio_responders else "None"
         raw_cad = inc.cad_notes or "No CAD notes recorded"
         first_snippet = raw_cad.strip().replace("\r\n", " ").replace("\n", " ")
-        if len(first_snippet) > 150:
-            first_snippet = first_snippet[:147] + "..."
-        cad_rows.append([inc.incident_number, clean_date, rep_str, marks_str, mapped_str, first_snippet])
+        if len(first_snippet) > 60:
+            first_snippet = first_snippet[:57] + "..."
 
-    curr_debug_row = _write_debug_table(
-        ws2,
-        curr_debug_row,
-        "INCIDENT CAD & RADIO BREAKDOWN",
-        ["Incident Number", "Date", "Personnel on Report", "Radio Marks Found", "Mapped Members", "CAD Notes Snippet"],
-        cad_rows,
-    )
-    curr_debug_row += 2  # Spacer rows
+        row_vals = [inc.incident_number, clean_date, rep_str, marks_str, mapped_str, first_snippet]
+        for col_idx, val in enumerate(row_vals, DEBUG_COL):
+            c = ws2.cell(row=curr_debug_row, column=col_idx, value=val)
+            c.font = REGULAR_FONT
+            c.border = THIN_BORDER
+            c.alignment = ALIGN_CENTER if col_idx == DEBUG_COL else ALIGN_LEFT
+        ws2.row_dimensions[curr_debug_row].height = 20
+        curr_debug_row += 1
+
+    curr_debug_row += 1  # Spacer row
 
     # Section 2: Unmapped Call Signs Audit Table
-    if dataset.all_unmapped_cad_marks:
-        audit_rows = [
-            [mark.token, mark.incident_number, _format_cell_date(mark.incident_date or ""), mark.snippet, mark.reason]
-            for mark in dataset.all_unmapped_cad_marks
-        ]
-    else:
-        audit_rows = [["None detected", "-", "-", "All CAD radio marks mapped to active department members", "Verified"]]
+    ws2.cell(row=curr_debug_row, column=DEBUG_COL, value="UNMAPPED CALL SIGNS AUDIT LOG").font = REGULAR_FONT
+    curr_debug_row += 1
 
-    curr_debug_row = _write_debug_table(
-        ws2,
-        curr_debug_row,
-        "UNMAPPED CALL SIGNS AUDIT LOG",
-        ["Call Sign / Token", "Incident Number", "Date", "CAD Remark Snippet", "Reason / Status"],
-        audit_rows,
-    )
-    curr_debug_row += 2  # Spacer rows
+    headers_unmapped = [
+        "Call Sign / Token",
+        "Incident Number",
+        "Date",
+        "CAD Remark Snippet",
+        "Reason / Status",
+    ]
+    for col_idx, h in enumerate(headers_unmapped, DEBUG_COL):
+        c = ws2.cell(row=curr_debug_row, column=col_idx, value=h)
+        c.font = REGULAR_FONT
+        c.alignment = ALIGN_LEFT
+        c.border = THIN_BORDER
+    ws2.row_dimensions[curr_debug_row].height = 22
+    curr_debug_row += 1
+
+    if dataset.all_unmapped_cad_marks:
+        for mark in dataset.all_unmapped_cad_marks:
+            clean_date = _format_cell_date(mark.incident_date or "")
+            row_vals = [mark.token, mark.incident_number, clean_date, mark.snippet, mark.reason]
+            for col_idx, val in enumerate(row_vals, DEBUG_COL):
+                c = ws2.cell(row=curr_debug_row, column=col_idx, value=val)
+                c.font = REGULAR_FONT
+                c.border = THIN_BORDER
+                c.alignment = ALIGN_CENTER if col_idx <= DEBUG_COL + 1 else ALIGN_LEFT
+            ws2.row_dimensions[curr_debug_row].height = 20
+            curr_debug_row += 1
+    else:
+        row_vals = ["None detected", "-", "-", "All CAD radio marks mapped to active department members", "Verified"]
+        for col_idx, val in enumerate(row_vals, DEBUG_COL):
+            c = ws2.cell(row=curr_debug_row, column=col_idx, value=val)
+            c.font = REGULAR_FONT
+            c.border = THIN_BORDER
+            c.alignment = ALIGN_LEFT
+        ws2.row_dimensions[curr_debug_row].height = 20
+        curr_debug_row += 1
+
+    curr_debug_row += 1  # Spacer row
 
     # Section 3: Unmapped Call Signs Frequency Summary
+    ws2.cell(row=curr_debug_row, column=DEBUG_COL, value="UNMAPPED CALL SIGNS FREQUENCY SUMMARY").font = REGULAR_FONT
+    curr_debug_row += 1
+
+    headers_freq = ["Call Sign", "Total Occurrences", "Suggested Action"]
+    for col_idx, h in enumerate(headers_freq, DEBUG_COL):
+        c = ws2.cell(row=curr_debug_row, column=col_idx, value=h)
+        c.font = REGULAR_FONT
+        c.alignment = ALIGN_RIGHT if col_idx == DEBUG_COL + 1 else ALIGN_LEFT
+        c.border = THIN_BORDER
+    ws2.row_dimensions[curr_debug_row].height = 22
+    curr_debug_row += 1
+
     if dataset.unmapped_cad_frequency:
         sorted_freq = sorted(dataset.unmapped_cad_frequency.items(), key=lambda x: (-x[1], x[0]))
-        freq_rows = [
-            [token, count, "Verify if new member; add to Member Manager"]
-            for token, count in sorted_freq
-        ]
+        for token, count in sorted_freq:
+            action = "Verify if new member; add to Member Manager"
+            row_vals = [token, count, action]
+            for col_idx, val in enumerate(row_vals, DEBUG_COL):
+                c = ws2.cell(row=curr_debug_row, column=col_idx, value=val)
+                c.font = REGULAR_FONT
+                c.border = THIN_BORDER
+                c.alignment = ALIGN_RIGHT if col_idx == DEBUG_COL + 1 else ALIGN_LEFT
+            ws2.row_dimensions[curr_debug_row].height = 20
+            curr_debug_row += 1
     else:
-        freq_rows = [["None detected", 0, "No action required"]]
+        row_vals = ["None detected", 0, "No action required"]
+        for col_idx, val in enumerate(row_vals, DEBUG_COL):
+            c = ws2.cell(row=curr_debug_row, column=col_idx, value=val)
+            c.font = REGULAR_FONT
+            c.border = THIN_BORDER
+            c.alignment = ALIGN_RIGHT if col_idx == DEBUG_COL + 1 else ALIGN_LEFT
+        ws2.row_dimensions[curr_debug_row].height = 20
+        curr_debug_row += 1
 
-    _write_debug_table(
-        ws2,
-        curr_debug_row,
-        "UNMAPPED CALL SIGNS FREQUENCY SUMMARY",
-        ["Call Sign", "Total Occurrences", "Suggested Action"],
-        freq_rows,
-    )
+    # Section 4: CAD entry legend (testing aid), to the right of the debug tables
+    ws2.cell(row=1, column=LEGEND_COL, value="CAD ENTRY LEGEND").font = REGULAR_FONT
+    for col_idx, h in enumerate(["CAD Entry", "Unit #", "Name", "Result", "Calls Seen"], LEGEND_COL):
+        c = ws2.cell(row=2, column=col_idx, value=h)
+        c.font = REGULAR_FONT
+        c.alignment = ALIGN_LEFT
+        c.border = THIN_BORDER
+
+    legend_rows = [
+        [e.cad_entry, e.unit_number, e.member_name, e.status, e.times_seen] for e in dataset.cad_legend
+    ] or [["None detected", "", "", "", 0]]
+    for row_idx, row_vals in enumerate(legend_rows, 3):
+        for col_idx, val in enumerate(row_vals, LEGEND_COL):
+            c = ws2.cell(row=row_idx, column=col_idx, value=val)
+            c.font = REGULAR_FONT
+            c.alignment = ALIGN_LEFT
+            c.border = THIN_BORDER
+
+    _auto_fit_columns(ws1)
+    _auto_fit_columns(ws2)
 
     # Save to disk
     _log(f"Saving Excel workbook to {out_file}...")

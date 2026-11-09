@@ -20,10 +20,12 @@ def test_member_manager_seed_default(tmp_path: Path):
     members = load_members(target)
     assert target.exists()
     assert len(members) >= 3
-    # Charles Wellons should be present with CHF 15 alias
+    # Chief 15 aliases belong to James Garber only
+    garber = next((m for m in members if "Garber" in m.name), None)
     wellons = next((m for m in members if "Wellons" in m.name), None)
-    assert wellons is not None
-    assert "CHF 15" in wellons.aliases
+    assert garber is not None and wellons is not None
+    assert "CHF 15" in garber.aliases
+    assert "CHF 15" not in wellons.aliases
     assert wellons.active is True
 
 

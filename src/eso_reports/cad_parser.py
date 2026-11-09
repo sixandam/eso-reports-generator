@@ -241,7 +241,8 @@ class CADParser:
             return []
 
         results: List[Tuple[str, str]] = []
-        lines = text.splitlines()
+        # ESO delivers CAD notes as one line: "11/6/2026 17:19:49 - 1535 ENRT; 11/6/2026 17:20:11 - 1503 ENRT"
+        lines = [entry for line in text.splitlines() for entry in re.split(r";\s*(?=\d{1,2}/\d{1,2}/\d{4}\s)", line)]
 
         # Regex patterns for CAD markups:
         # 1. Officer / call sign patterns: CHF 15, CHG15, CF15, CHIEF 15, C-15, CAPT 15, LT 15, etc.
