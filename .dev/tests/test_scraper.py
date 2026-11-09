@@ -140,3 +140,31 @@ def test_scraper_auto_learn_badge_from_payload(tmp_path: Path):
 
 
 
+
+
+def test_filter_to_date_range_drops_out_of_range_incidents():
+    scraper = ESOScraper(context=MagicMock(), members=[])
+    incidents = [
+        Incident(incident_number="A", incident_type="x", incident_date="10/31/2026 23:59"),
+        Incident(incident_number="B", incident_type="x", incident_date="11/01/2026 00:01"),
+        Incident(incident_number="C", incident_type="x", incident_date="2026-11-07T08:00:00"),
+        Incident(incident_number="D", incident_type="x", incident_date="11/08/2026 01:00"),
+    ]
+    kept = scraper._filter_to_date_range(incidents, "11/01/2026", "11/07/2026")
+    assert [i.incident_number for i in kept] == ["B", "C"]
+
+
+def test_extract_cad_notes_reads_eso_cad_field_and_ignores_narratives():
+    from eso_reports.scraper import extract_cad_notes_from_payload
+
+    payload = {
+        "core": {"incidentNumber": "CO15202600481"},
+        "narratives": {"finalOutcomesNarrative": "Company 15 was disregarded while members were en route."},
+        "cad": {
+            "cadIncidentId": "095140f5-fde5-ed11-a81c-000d3ae4ae10",
+            "cadNotes": "11/6/2026 08:44:10 - 1534 ENRT POV; 11/6/2026 08:45:02 - 15-16 ONS",
+        },
+    }
+    notes = extract_cad_notes_from_payload(payload)
+    assert notes == "11/6/2026 08:44:10 - 1534 ENRT POV\n11/6/2026 08:45:02 - 15-16 ONS"
+    assert extract_cad_notes_from_payload({"narratives": {"finalOutcomesNarrative": "text"}}) is None

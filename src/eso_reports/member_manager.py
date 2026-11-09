@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 from .config import MEMBERS_FILE, APP_CONFIG_DIR
 from .models import Member, normalize_personnel_name
+from .cad_parser import is_reserved_alias
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ def auto_learn_member_badge(
     if not norm_name or not clean_badge:
         return False
 
-    if len(clean_badge) == 2 and clean_badge.isdigit() and 10 <= int(clean_badge) <= 64:
+    if len(clean_badge) == 2 and clean_badge.isdigit() and 10 <= int(clean_badge) <= 64 and not is_reserved_alias(clean_badge):
         clean_badge = f"15{clean_badge}"
 
     hyphenated = None
@@ -174,6 +175,8 @@ def auto_learn_member_badge(
         hyphenated = f"{clean_badge[:2]}-{clean_badge[2:]}"
         if clean_badge.startswith("15"):
             short_num = str(int(clean_badge[2:]))
+            if is_reserved_alias(short_num):
+                short_num = None
 
     for m in members:
         if m.name == norm_name:

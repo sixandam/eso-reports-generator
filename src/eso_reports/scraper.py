@@ -16,13 +16,13 @@ import re
 import threading
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 from playwright.sync_api import BrowserContext, Page, Response
 from rich.console import Console
 
-from .config import ESO_SEARCH_URL
+from .config import ESO_SEARCH_URL, ESO_INCIDENT_API_BASE
 from .models import Incident, normalize_personnel_name, Member, extract_name_and_badge
 from .member_manager import load_members, save_members, auto_learn_member_badge
 from .cad_parser import CADParser, extract_unit_from_token
@@ -31,79 +31,72 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
+# ESO CAD notes arrive as one string of entries: "M/D/YYYY HH:MM:SS - text; M/D/YYYY HH:MM:SS - text"
+_CAD_ENTRY_SPLIT_RE = re.compile(r";\s*(?=\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2})")
+
+
+def split_cad_entries(cad_notes: str) -> List[str]:
+    """Splits ESO's single-line CAD notes into one timestamped entry per line."""
+    entries: List[str] = []
+    for chunk in _CAD_ENTRY_SPLIT_RE.split(cad_notes or ""):
+        clean = " ".join(chunk.split())
+        if clean:
+            entries.append(clean)
+    return entries
+
+
 def extract_cad_notes_from_payload(item: dict) -> Optional[str]:
     """
-    Extracts raw CAD dispatch notes or narrative text from ESO API payload.
-    Supports strings, lists of narrative dictionaries, and nested core/cad objects.
+    Extracts CAD dispatch notes from an ESO incident payload ('cad.cadNotes').
+    Report narratives are deliberately ignored: they are written after the call and
+    are not dispatcher radio marks.
     """
     if not isinstance(item, dict):
         return None
+    cad = item.get("cad")
+    raw = cad.get("cadNotes") if isinstance(cad, dict) else None
+    if not raw and isinstance(item.get("cadNotes"), str):
+        raw = item.get("cadNotes")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    entries = split_cad_entries(raw)
+    return "\n".join(entries) if entries else None
 
-    cad_candidates = [
-        item.get("cadNotes"),
-        item.get("cadComments"),
-        item.get("cadRemarks"),
-        item.get("cad"),
-        item.get("dispatchInfo"),
-        item.get("dispatchNotes"),
-        item.get("narratives"),
-        item.get("narrative"),
-    ]
-    core = item.get("core")
-    if isinstance(core, dict):
-        cad_candidates.extend([
-            core.get("cadNotes"),
-            core.get("cadComments"),
-            core.get("cadRemarks"),
-            core.get("cad"),
-            core.get("comments"),
-            core.get("narratives"),
-            core.get("narrative"),
-        ])
 
-    lines: List[str] = []
-    for cand in cad_candidates:
-        if not cand:
-            continue
-        if isinstance(cand, str):
-            clean = cand.strip()
-            if clean and clean not in lines:
-                lines.append(clean)
-        elif isinstance(cand, list):
-            for entry in cand:
-                if isinstance(entry, str):
-                    clean = entry.strip()
-                    if clean and clean not in lines:
-                        lines.append(clean)
-                elif isinstance(entry, dict):
-                    t = (
-                        entry.get("text")
-                        or entry.get("narrative")
-                        or entry.get("comment")
-                        or entry.get("remark")
-                        or entry.get("content")
-                        or entry.get("cadNotes")
-                    )
-                    if t and isinstance(t, str):
-                        clean = t.strip()
-                        if clean and clean not in lines:
-                            lines.append(clean)
-        elif isinstance(cand, dict):
-            t = (
-                cand.get("text")
-                or cand.get("narrative")
-                or cand.get("comment")
-                or cand.get("remarks")
-                or cand.get("notes")
-            )
-            if t and isinstance(t, str):
-                clean = t.strip()
-                if clean and clean not in lines:
-                    lines.append(clean)
-
-    if lines:
-        return "\n".join(lines)
+def parse_incident_date(value: Optional[str]) -> Optional[date]:
+    """
+    Parses ESO incident timestamps into a local calendar date.
+    Handles 'MM/DD/YYYY[ HH:MM[:SS]]', 'YYYY-MM-DD' and ISO-8601 with or without offsets.
+    """
+    if not value:
+        return None
+    clean = str(value).strip()
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})", clean)
+    if m:
+        try:
+            return date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            return None
+    try:
+        iso = clean.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
+        return dt.date()
+    except ValueError:
+        pass
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", clean)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
     return None
+
+
+def parse_range_date(value: str) -> Optional[date]:
+    """Parses a user-supplied range boundary (MM/DD/YYYY or YYYY-MM-DD)."""
+    return parse_incident_date(format_date_for_eso(value)) if value else None
 
 
 def format_date_for_eso(date_str: str) -> str:
@@ -174,7 +167,7 @@ class ESOScraper:
 
                 # Target actual incident search and incident record endpoints
                 if "application/json" in response.headers.get("content-type", ""):
-                    if "/api/incident/" in url or "/api/incident-search" in url or "records/search" in url:
+                    if "/api/incident/" in url:
                         data = response.json()
                         self._process_api_payload(data, url)
             except Exception:
@@ -241,6 +234,7 @@ class ESOScraper:
         core_date = (
             core.get("incidentOnsetDateTime")
             or incident_times.get("dispatchCallArrivalDateTime")
+            or item.get("incidentOnsetDateTime")
             or item.get("incidentDate")
             or item.get("date")
         )
@@ -485,98 +479,101 @@ class ESOScraper:
         self._log(f"Connecting to ESO Records Search portal: {ESO_SEARCH_URL}...")
         page.goto(ESO_SEARCH_URL, wait_until="networkidle", timeout=45000)
 
-        self._log(f"Applying date filters: {eso_start} to {eso_end}...")
-        self._apply_search_date_filters(page, eso_start, eso_end)
+        api_ok = self._search_via_api(page, start_date, end_date)
+        if not api_ok:
+            self._log("Direct ESO search unavailable; falling back to the on-page search grid...")
+            self._log(f"Applying date filters: {eso_start} to {eso_end}...")
+            self._apply_search_date_filters(page, eso_start, eso_end)
 
-        # Allow network activity to settle after filtering
-        try:
-            page.wait_for_load_state("networkidle", timeout=8000)
-        except Exception:
-            pass
-
-        # 3. Expand search grid page size to 100 to minimize pagination overhead
-        page_size_select = page.locator("select.page-size-select, select[class*='page-size']")
-        if page_size_select.count() > 0:
+            # Allow network activity to settle after filtering
             try:
-                self._log("Setting search grid page size to 100 records...")
-                page_size_select.first.select_option("100")
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+
+            # 3. Expand search grid page size to 100 to minimize pagination overhead
+            page_size_select = page.locator("select.page-size-select, select[class*='page-size']")
+            if page_size_select.count() > 0:
                 try:
-                    page.wait_for_load_state("networkidle", timeout=8000)
+                    self._log("Setting search grid page size to 100 records...")
+                    page_size_select.first.select_option("100")
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
-            except Exception:
-                pass
 
-        self._log("Scanning incidents...")
+            self._log("Scanning incidents...")
 
-        # Harvest rows across pages (handles date ranges with 100+ incidents)
-        page_num = 1
-        max_pages = 25
-        while page_num <= max_pages:
-            try:
-                page.locator("table tbody tr, div.k-grid-content tr, div.record-row").first.wait_for(state="attached", timeout=4000)
-            except Exception:
-                pass
+            # Harvest rows across pages (handles date ranges with 100+ incidents)
+            page_num = 1
+            max_pages = 25
+            while page_num <= max_pages:
+                try:
+                    page.locator("table tbody tr, div.k-grid-content tr, div.record-row").first.wait_for(state="attached", timeout=4000)
+                except Exception:
+                    pass
 
-            rows = page.locator("table tbody tr, div.k-grid-content tr, div.record-row").all()
+                rows = page.locator("table tbody tr, div.k-grid-content tr, div.record-row").all()
 
-            for idx, row in enumerate(rows):
-                link = row.locator("a[href*='/records/']").first
-                href = link.get_attribute("href") if link.count() > 0 else ""
-                record_id = None
-                if href:
-                    match = re.search(r"/records/(\d+)", href)
-                    if match:
-                        record_id = match.group(1)
+                for idx, row in enumerate(rows):
+                    link = row.locator("a[href*='/records/']").first
+                    href = link.get_attribute("href") if link.count() > 0 else ""
+                    record_id = None
+                    if href:
+                        match = re.search(r"/records/(\d+)", href)
+                        if match:
+                            record_id = match.group(1)
 
-                text = row.inner_text()
-                tokens = [t.strip() for t in text.split("\t") if t.strip()]
-                if not tokens:
-                    tokens = [t.strip() for t in text.split("\n") if t.strip()]
+                    text = row.inner_text()
+                    tokens = [t.strip() for t in text.split("\t") if t.strip()]
+                    if not tokens:
+                        tokens = [t.strip() for t in text.split("\n") if t.strip()]
 
-                if len(tokens) >= 1:
-                    inc_num = tokens[0]
-                    inc_date_candidate = tokens[1] if len(tokens) > 1 else None
+                    if len(tokens) >= 1:
+                        inc_num = tokens[0]
+                        inc_date_candidate = tokens[1] if len(tokens) > 1 else None
 
-                    is_inactive_token = any("INACTIVE" in t.upper() for t in tokens)
-                    init_status = "INACTIVE" if is_inactive_token else "ACTIVE"
+                        is_inactive_token = any("INACTIVE" in t.upper() for t in tokens)
+                        init_status = "INACTIVE" if is_inactive_token else "ACTIVE"
 
-                    # Note: in ESO grid, tokens[2] is the record Status ('IN REVIEW', 'DRAFT', 'INACTIVE'), NOT the Incident Type.
-                    # Initialize incident_type as "Unknown Incident Type" so authoritative core API fills it.
-                    if inc_num not in self.intercepted_incidents:
-                        self.intercepted_incidents[inc_num] = Incident(
-                            incident_number=inc_num,
-                            incident_type="Unknown Incident Type",
-                            incident_date=inc_date_candidate,
-                            record_id=record_id,
-                            status=init_status,
-                        )
-                        if record_id:
-                            self.record_id_to_inc_num[record_id] = inc_num
-                    else:
-                        if record_id:
-                            self.intercepted_incidents[inc_num].record_id = record_id
-                            self.record_id_to_inc_num[record_id] = inc_num
-                        if inc_date_candidate and not self.intercepted_incidents[inc_num].incident_date:
-                            self.intercepted_incidents[inc_num].incident_date = inc_date_candidate
-                        if is_inactive_token:
-                            self.intercepted_incidents[inc_num].status = "INACTIVE"
+                        # Note: in ESO grid, tokens[2] is the record Status ('IN REVIEW', 'DRAFT', 'INACTIVE'), NOT the Incident Type.
+                        # Initialize incident_type as "Unknown Incident Type" so authoritative core API fills it.
+                        if inc_num not in self.intercepted_incidents:
+                            self.intercepted_incidents[inc_num] = Incident(
+                                incident_number=inc_num,
+                                incident_type="Unknown Incident Type",
+                                incident_date=inc_date_candidate,
+                                record_id=record_id,
+                                status=init_status,
+                            )
+                            if record_id:
+                                self.record_id_to_inc_num[record_id] = inc_num
+                        else:
+                            if record_id:
+                                self.intercepted_incidents[inc_num].record_id = record_id
+                                self.record_id_to_inc_num[record_id] = inc_num
+                            if inc_date_candidate and not self.intercepted_incidents[inc_num].incident_date:
+                                self.intercepted_incidents[inc_num].incident_date = inc_date_candidate
+                            if is_inactive_token:
+                                self.intercepted_incidents[inc_num].status = "INACTIVE"
 
-            # Check for next page
-            next_btn = page.locator("button[title='Next page'], a[title='Next page'], button:has-text('Next page')").first
-            if next_btn.count() > 0 and next_btn.is_enabled():
-                disabled_attr = next_btn.get_attribute("disabled")
-                class_attr = next_btn.get_attribute("class") or ""
-                if disabled_attr is not None or "disabled" in class_attr:
+                # Check for next page
+                next_btn = page.locator("button[title='Next page'], a[title='Next page'], button:has-text('Next page')").first
+                if next_btn.count() > 0 and next_btn.is_enabled():
+                    disabled_attr = next_btn.get_attribute("disabled")
+                    class_attr = next_btn.get_attribute("class") or ""
+                    if disabled_attr is not None or "disabled" in class_attr:
+                        break
+                    next_btn.click()
+                    page_num += 1
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=6000)
+                    except Exception:
+                        pass
+                else:
                     break
-                next_btn.click()
-                page_num += 1
-                try:
-                    page.wait_for_load_state("networkidle", timeout=6000)
-                except Exception:
-                    pass
-            else:
-                break
 
         self._log("Scanning incidents complete.")
         active_cnt = sum(1 for inc in self.intercepted_incidents.values() if inc.status != "INACTIVE" and not is_uuid(inc.incident_number))
@@ -603,7 +600,104 @@ class ESOScraper:
             if not is_uuid(inc.incident_number) and inc.incident_number != "Unknown"
         ]
 
+        valid_incidents = self._filter_to_date_range(valid_incidents, start_date, end_date)
+        self._report_cad_status(valid_incidents)
         return valid_incidents
+
+    def _search_via_api(self, page: Page, start_date: str, end_date: str) -> bool:
+        """
+        Queries ESO's incident search API with the exact date range (the same request the
+        search page sends), paging until every record is collected.
+        Returns False if the API could not be used, so the caller can fall back to the UI.
+        """
+        start = parse_range_date(start_date)
+        end = parse_range_date(end_date)
+        if not start or not end:
+            return False
+
+        search_url = ESO_INCIDENT_API_BASE.replace("/api/incident", "/api/incident-search")
+        page_size = 100
+        page_number = 0
+        collected = 0
+        total = None
+        self._log(f"Searching ESO for incidents from {start:%m/%d/%Y} to {end:%m/%d/%Y}...")
+        while True:
+            body = {
+                "filter": {
+                    "fromDate": start.isoformat(),
+                    "toDate": end.isoformat(),
+                    "incidentNumber": None,
+                    "incidentStatusTypeIds": None,
+                    "incidentSubmissionStatusTypeIds": None,
+                    "unitIds": [],
+                    "shiftIds": [],
+                },
+                "pageNumber": page_number,
+                "pageSize": page_size,
+                "sortDirectionId": 1,
+                "sortColumnId": 1,
+            }
+            try:
+                resp = page.request.post(search_url, data=body, timeout=30000)
+                if not resp.ok:
+                    logger.debug("Incident search API returned HTTP %s", resp.status)
+                    return False
+                data = resp.json()
+            except Exception as e:
+                logger.debug("Incident search API failed: %s", e)
+                return False
+
+            records = data.get("incidents") if isinstance(data, dict) else None
+            if not isinstance(records, list):
+                return False
+            if total is None:
+                total = data.get("totalCount")
+            for rec in records:
+                if isinstance(rec, dict):
+                    self._parse_incident_dict(rec)
+            collected += len(records)
+            page_number += 1
+            if not records or len(records) < page_size or (isinstance(total, int) and collected >= total) or page_number >= 50:
+                break
+
+        self._log(f"ESO search returned {collected} incident records.")
+        return True
+
+    def _filter_to_date_range(self, incidents: List[Incident], start_date: str, end_date: str) -> List[Incident]:
+        """
+        Drops incidents outside the requested range. ESO's search page pre-loads its default
+        window (e.g. the past 30 days) and that response is intercepted too, so the
+        on-page filter alone cannot be relied on.
+        """
+        start = parse_range_date(start_date)
+        end = parse_range_date(end_date)
+        if not start or not end:
+            return incidents
+
+        kept: List[Incident] = []
+        dropped = 0
+        undated = 0
+        for inc in incidents:
+            d = parse_incident_date(inc.incident_date)
+            if d is None:
+                undated += 1
+                kept.append(inc)
+            elif start <= d <= end:
+                kept.append(inc)
+            else:
+                dropped += 1
+
+        if dropped:
+            self._log(f"Excluded {dropped} incident(s) dated outside {start:%m/%d/%Y} - {end:%m/%d/%Y}.")
+        if undated:
+            self._log(f"Warning: {undated} incident(s) had no readable date and were kept.")
+        self._log(f"{len(kept)} incident records within the selected date range.")
+        return kept
+
+    def _report_cad_status(self, incidents: List[Incident]):
+        """Logs how many incidents carried CAD notes."""
+        with_cad = sum(1 for inc in incidents if inc.cad_notes)
+        self._log(f"CAD notes found on {with_cad} of {len(incidents)} incidents.")
 
     def _fetch_records_batch(self, page: Page, incidents: List[Incident]):
         """
@@ -756,8 +850,9 @@ class ESOScraper:
             except Exception:
                 pass
 
-        # Check for preset dropdown / button (e.g. "Past 7 Days")
-        preset = page.locator("button:has-text('Past 7 Days'), button:has-text('Last 7 Days'), [role='combobox']:has-text('Past 7 Days')").first
+        # Check for preset dropdown / button (e.g. "Past 7 Days", "Past 30 Days", "Last 30 Days")
+        preset_re = re.compile(r"(past|last)\s+\d+\s+days", re.IGNORECASE)
+        preset = page.locator("button, [role='combobox'], select").filter(has_text=preset_re).first
         if preset.count() > 0:
             try:
                 preset.click()
@@ -769,6 +864,8 @@ class ESOScraper:
 
         # Fill start date using modern Playwright press_sequentially
         start_input = page.locator("input[name*='start' i], input[id*='start' i], input[placeholder*='Start' i]").first
+        if start_input.count() == 0:
+            self._log("Warning: ESO date filter fields not found; results will be filtered to the selected range after scanning.")
         if start_input.count() > 0:
             start_input.click()
             start_input.fill("")

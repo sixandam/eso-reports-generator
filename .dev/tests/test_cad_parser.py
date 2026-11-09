@@ -126,3 +126,34 @@ def test_cad_parsing_and_unmapped(sample_members):
     assert unmapped[0].incident_number == "CO15202600443"
     assert "1599" in unmapped[0].snippet
     assert "No active member" in unmapped[0].reason
+
+
+def test_bare_company_number_never_maps_but_full_forms_do():
+    from eso_reports.cad_parser import CADParser, extract_unit_from_token
+    from eso_reports.models import Member
+
+    members = [Member(name="Salmons, Shaun", primary_id="1515", aliases=["1515", "15-15", "15"], active=True)]
+    parser = CADParser(members)
+
+    assert extract_unit_from_token("15") is None
+    for form in ("1515", "15-15", "15 15"):
+        assert extract_unit_from_token(form) == "1515"
+        assert parser.match_token_to_member(form) is members[0]
+    assert parser.match_token_to_member("15") is None
+
+    _, responders, _ = parser.parse_cad_text("11/5/2026 10:59:12 - Company 15 disregarded", "X")
+    assert responders == []
+    _, responders, _ = parser.parse_cad_text("11/5/2026 11:01:00 - 15 15 ENRT", "X")
+    assert responders == ["Salmons, Shaun"]
+
+
+def test_short_numeric_aliases_do_not_match_ordinary_numbers():
+    from eso_reports.cad_parser import CADParser
+    from eso_reports.models import Member
+
+    members = [Member(name="Watson, Mike", primary_id="1510", aliases=["1510", "15-10", "10"], active=True)]
+    parser = CADParser(members)
+    tokens, responders, _ = parser.parse_cad_text("11/6/2026 09:00:00 - copy 10/4 on 10/15/2026", "X")
+    assert responders == []
+    _, responders, _ = parser.parse_cad_text("11/6/2026 09:01:00 - 1510 ENRT", "X")
+    assert responders == ["Watson, Mike"]

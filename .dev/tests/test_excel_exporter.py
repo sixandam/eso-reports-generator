@@ -64,8 +64,8 @@ def test_excel_export_structure(tmp_path: Path):
 
     # 2. Verify Sheet 1: Call Percentage
     ws1 = wb["Call Percentage"]
-    # Check headers: Unit #, Name, followed by #[last 3 digits] for each call
-    expected_headers = ["Unit #", "Name", "#101", "#102", "#103"]
+    # Check headers: Unit #, Name, #[last 3 digits] for each call, then the call percentage column
+    expected_headers = ["Unit #", "Name", "#101", "#102", "#103", "Total Calls Made (%)"]
     actual_headers = [cell.value for cell in ws1[1]]
     assert actual_headers == expected_headers
 
@@ -97,6 +97,7 @@ def test_excel_export_structure(tmp_path: Path):
     assert ws1.cell(row=row_1534, column=3).value == "X"  # Call 101
     assert ws1.cell(row=row_1534, column=4).value == "X"  # Call 102
     assert ws1.cell(row=row_1534, column=5).value in (None, "")  # Call 103
+    assert ws1.cell(row=row_1534, column=6).value == "2/3 (66.7%)"  # Call percentage
 
     # Check an unmapped unit number (e.g. 1522) has blank name
     row_1522 = next(r for r in range(2, ws1.max_row + 1) if ws1.cell(row=r, column=1).value == "1522")

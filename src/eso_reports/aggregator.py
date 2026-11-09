@@ -108,13 +108,12 @@ def build_report_dataset(
                 incident_number=inc.incident_number,
                 incident_date=inc.incident_date,
             )
-            inc.radio_markups_found = list(dict.fromkeys(inc.radio_markups_found + tokens))
-            inc.radio_responders = list(dict.fromkeys(inc.radio_responders + radio_resp))
-            existing_unmapped = {u.token for u in inc.unmapped_radio_marks}
-            for u in unmapped:
-                if u.token not in existing_unmapped:
-                    inc.unmapped_radio_marks.append(u)
-                    existing_unmapped.add(u.token)
+            # Replace (not merge) results from the scrape-time pass: that pass can run before
+            # all member badges were learned, which would leave stale "unmapped" marks behind.
+            inc.radio_markups_found = list(dict.fromkeys(tokens))
+            inc.radio_responders = list(dict.fromkeys(radio_resp))
+            inc.unmapped_radio_marks = list({u.token: u for u in unmapped}.values())
+            inc.radio_units = [u for u in (extract_unit_from_token(t) for t in tokens) if u]
 
         # Radio responders
         norm_radio = {normalize_personnel_name(r) or r for r in inc.radio_responders if r}

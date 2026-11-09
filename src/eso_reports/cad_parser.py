@@ -18,6 +18,25 @@ IGNORE_TOKENS = {
     "PAGE", "PAGED", "TONE", "TONES", "ALERT", "ALERTS",
 }
 
+# The company number on its own ("Company 15", "Station 15") is never a member call sign.
+# Members are only identified by full forms such as 1515, 15-15 or 15 15.
+COMPANY_NUMBER = "15"
+
+
+def is_reserved_alias(alias: str) -> bool:
+    """True for aliases that must never identify a member (the bare company number)."""
+    return " ".join(str(alias or "").split()) == COMPANY_NUMBER
+
+
+# Apparatus / company / station prefixes: "ENG15", "TRUCK 15", "CO15", "CMD15" name a vehicle
+# or the company, not a member, so they are neither mapped nor flagged as unknown call signs.
+APPARATUS_PREFIXES = {
+    "CO", "COMPANY", "STA", "STN", "STATION", "ENG", "ENGINE", "E", "TRK", "TRUCK", "LADDER", "LAD",
+    "TWR", "TOWER", "CMD", "COMMAND", "PMPR", "PUMPER", "RES", "RESCUE", "SQ", "SQUAD", "MED", "MEDIC",
+    "AMB", "BRUSH", "BR", "TNK", "TANKER", "TENDER", "UTIL", "UTILITY", "UNIT", "AIR", "BOAT",
+}
+
+
 # Common dispatcher command variations mapped to standard
 COMMAND_CORRECTIONS = {
     "CHEIF": "CHIEF",
@@ -120,7 +139,7 @@ def extract_unit_from_token(token: str) -> Optional[str]:
         val = int(clean)
         if len(clean) == 4 and 1500 <= val <= 1599:
             return clean
-        elif len(clean) in (1, 2) and 10 <= val <= 64:
+        elif len(clean) in (1, 2) and 10 <= val <= 64 and clean != COMPANY_NUMBER:
             return f"15{val:02d}"
     return None
 
@@ -150,7 +169,7 @@ class CADParser:
 
             for cand in candidates:
                 cand_clean = cand.strip()
-                if not cand_clean:
+                if not cand_clean or is_reserved_alias(cand_clean):
                     continue
                 cand_upper = cand_clean.upper()
                 self.exact_alias_map[cand_upper] = m
@@ -182,7 +201,7 @@ class CADParser:
         Returns matched Member or None.
         """
         raw_upper = " ".join(token.strip().split()).upper()
-        if not raw_upper or raw_upper in IGNORE_TOKENS:
+        if not raw_upper or raw_upper in IGNORE_TOKENS or is_reserved_alias(raw_upper):
             return None
 
         # Tier 1: Exact alias match
@@ -234,13 +253,17 @@ class CADParser:
         # 2. Badge / member number patterns:
         # Matches 1516, 15-16, 15 16, #1516, M1516, 15O6, 1S16, l516
         pattern_numeric = re.compile(
-            r"(?:(?<=\s)|(?<=^)|(?<=[/#,;&]))(?:#|M|m)?(?:[1lI][5sS][0-9oOIlSs]{2}|[1lI][5sS]\s*[-/ ]\s*[0-9oOIlSs]{2})(?=(?:[\s,./;&]|$))",
+            r"(?:(?<=\s)|(?<=^)|(?<=[#,;&]))(?:#|M|m)?(?:[1lI][5sS][0-9oOIlSs]{2}|[1lI][5sS]\s*-\s*[0-9oOIlSs]{2}|15 [0-9]{2})(?=(?:[\s,.;&]|$))",
             re.IGNORECASE,
         )
 
         # 3. Explicit check for configured aliases that might not match above regex
         custom_patterns = []
         for alias in self.all_configured_tokens:
+            # Short numeric aliases ("10", "34") also appear as ordinary numbers in CAD text
+            # ("10/4", dates, addresses, "Station 14"), so they are not searched for as call signs.
+            if re.fullmatch(r"\d{1,2}", alias):
+                continue
             if not pattern_officer.match(alias) and not pattern_numeric.match(alias):
                 custom_patterns.append(re.escape(alias))
 
@@ -253,12 +276,13 @@ class CADParser:
 
             # Strip timestamp prefixes like "[20:26:01]" or "10/17/2026 20:25:30 -"
             clean_line = re.sub(r"^\[.*?\]\s*", "", line)
-            clean_line = re.sub(r"^\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}(?::\d{2})?\s*[-:]?\s*", "", clean_line)
+            clean_line = re.sub(r"^\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?\s*[-:]?\s*", "", clean_line)
 
             # Match officer tokens
             for m in pattern_officer.finditer(clean_line):
                 token = m.group(0).strip()
-                if token.upper() not in IGNORE_TOKENS:
+                prefix = re.match(r"[A-Za-z]+", token).group(0).upper()
+                if token.upper() not in IGNORE_TOKENS and prefix not in APPARATUS_PREFIXES and prefix not in IGNORE_TOKENS:
                     results.append((token, line))
 
             # Match numeric tokens
