@@ -21,7 +21,7 @@ DEFAULT_SEEDED_MEMBERS: List[Dict] = [
     {
         "name": "Wellons, Charles",
         "primary_id": "1534",
-        "aliases": ["CHF 15", "CF15", "CHIEF 15", "1501", "15-01", "1534", "15-34", "34"],
+        "aliases": ["1534", "15-34", "34"],
         "active": True,
     },
     {

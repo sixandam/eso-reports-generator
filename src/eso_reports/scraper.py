@@ -90,7 +90,8 @@ def extract_cad_notes_from_payload(item: dict) -> Optional[str]:
                             lines.append(clean)
         elif isinstance(cand, dict):
             t = (
-                cand.get("text")
+                cand.get("cadNotes")  # Live ESO structure: item["cad"]["cadNotes"]
+                or cand.get("text")
                 or cand.get("narrative")
                 or cand.get("comment")
                 or cand.get("remarks")

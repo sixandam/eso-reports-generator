@@ -54,6 +54,24 @@ def test_parse_incident_dict_overwrites_status_with_core_type(tmp_path: Path):
     assert "Glass, Ryne" in inc.responders
 
 
+def test_cad_notes_read_from_live_eso_structure():
+    from eso_reports.models import Member
+    scraper = ESOScraper(
+        context=MagicMock(),
+        members=[Member(name="Wellons, Charles", primary_id="1534", aliases=["1534"], active=True)],
+    )
+    scraper._parse_incident_dict({
+        "incidentId": 10194400,
+        "core": {"incidentNumber": "CO15202601000"},
+        "cad": {"cadIncidentId": "abc", "streetAddress": "1 Main St", "cadNotes": "1534 EN ROUTE POV"},
+    })
+
+    inc = scraper.intercepted_incidents["CO15202601000"]
+    assert inc.cad_notes == "1534 EN ROUTE POV"
+    assert inc.radio_markups_found == ["1534"]
+    assert inc.radio_responders == ["Wellons, Charles"]
+
+
 def test_format_date_for_eso():
     from eso_reports.scraper import format_date_for_eso
     assert format_date_for_eso("2026-09-01") == "09/01/2026"

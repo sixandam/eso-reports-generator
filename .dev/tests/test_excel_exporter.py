@@ -65,7 +65,7 @@ def test_excel_export_structure(tmp_path: Path):
     # 2. Verify Sheet 1: Call Percentage
     ws1 = wb["Call Percentage"]
     # Check headers: Unit #, Name, followed by #[last 3 digits] for each call
-    expected_headers = ["Unit #", "Name", "#101", "#102", "#103"]
+    expected_headers = ["Unit #", "Name", "#101", "#102", "#103", "Percentage"]
     actual_headers = [cell.value for cell in ws1[1]]
     assert actual_headers == expected_headers
 
@@ -133,6 +133,44 @@ def test_excel_export_structure(tmp_path: Path):
     assert "INCIDENT CAD & RADIO BREAKDOWN" in content_cells
     assert "UNMAPPED CALL SIGNS AUDIT LOG" in content_cells
     assert "UNMAPPED CALL SIGNS FREQUENCY SUMMARY" in content_cells
+
+
+def test_excel_export_formatting_rules(tmp_path: Path):
+    incidents = [
+        Incident(incident_number="24-00101", incident_type="111 - Building fire",
+                 responders=["Wellons, Charles | 1534"], apparatus=["Engine 15"]),
+        Incident(incident_number="24-00102", incident_type="321 - EMS call",
+                 responders=["Wellons, Charles | 1534"], apparatus=["Engine 15"]),
+        Incident(incident_number="24-00103", incident_type="321 - EMS call",
+                 responders=["Glass, Lucas | 1545"], apparatus=["Engine 15"]),
+    ]
+    out_file = tmp_path / "formatting.xlsx"
+    export_report_to_excel(build_report_dataset(incidents), out_file)
+    wb = openpyxl.load_workbook(out_file)
+    ws1, ws2 = wb["Call Percentage"], wb["Other"]
+
+    # Bold only on the Unit # column, including its header
+    for ws in (ws1, ws2):
+        for row in ws.iter_rows():
+            for cell in row:
+                expected = ws is ws1 and cell.column == 1
+                if cell.value is not None:
+                    assert bool(cell.font.bold) is expected, f"{ws.title}!{cell.coordinate}"
+
+    # Percentage is the last column, formatted "x/n (y%)"
+    pct_col = ws1.max_column
+    assert ws1.cell(row=1, column=pct_col).value == "Percentage"
+    rows = {ws1.cell(row=r, column=1).value: r for r in range(2, ws1.max_row + 1)}
+    assert ws1.cell(row=rows["1534"], column=pct_col).value == "2/3 (66.7%)"
+    assert ws1.cell(row=rows["1545"], column=pct_col).value == "1/3 (33.3%)"
+    assert ws1.cell(row=rows["1510"], column=pct_col).value == "0/3 (0.0%)"
+
+    # Every column with content is at least as wide as its longest text
+    for ws in (ws1, ws2):
+        for col in ws.columns:
+            longest = max((len(str(c.value)) for c in col if c.value is not None), default=0)
+            if longest:
+                assert ws.column_dimensions[col[0].column_letter].width >= longest
 
 
 def test_excel_export_empty_dataset(tmp_path: Path):

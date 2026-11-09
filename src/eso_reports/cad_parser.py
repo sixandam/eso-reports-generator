@@ -241,6 +241,9 @@ class CADParser:
         # 3. Explicit check for configured aliases that might not match above regex
         custom_patterns = []
         for alias in self.all_configured_tokens:
+            # Bare 1-2 digit aliases (e.g. '34') would match clock times and street numbers in free text
+            if alias.isdigit() and len(alias) <= 2:
+                continue
             if not pattern_officer.match(alias) and not pattern_numeric.match(alias):
                 custom_patterns.append(re.escape(alias))
 
